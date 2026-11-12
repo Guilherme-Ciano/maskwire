@@ -1,0 +1,257 @@
+package app
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"math"
+	"net"
+	"net/http"
+	"net/http/pprof"
+	"net/url"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/Guilherme-Ciano/maskwire/internal/audit"
+	"github.com/Guilherme-Ciano/maskwire/internal/config"
+	"github.com/Guilherme-Ciano/maskwire/internal/detect"
+	"github.com/Guilherme-Ciano/maskwire/internal/httpapi"
+	"github.com/Guilherme-Ciano/maskwire/internal/mask"
+	"github.com/Guilherme-Ciano/maskwire/internal/restore"
+	"github.com/Guilherme-Ciano/maskwire/internal/telemetry"
+	"github.com/Guilherme-Ciano/maskwire/internal/token"
+)
+
+var (
+	ErrUnknownCodec = errors.New("unknown codec")
+	ErrKeyVersion   = errors.New("key version out of range")
+)
+
+type App struct {
+	cfg     config.Config
+	log     *slog.Logger
+	metrics *telemetry.Metrics
+	api     *httpapi.Server
+	auditor *audit.Writer
+}
+
+func New(cfg config.Config, log *slog.Logger) (*App, error) {
+	master, err := cfg.MasterKey()
+	if err != nil {
+		return nil, fmt.Errorf("load master key: %w", err)
+	}
+	if cfg.Keys.Version < 1 || cfg.Keys.Version > math.MaxUint16 {
+		return nil, ErrKeyVersion
+	}
+	kr, err := token.NewKeyring(master, uint16(cfg.Keys.Version))
+	clear(master)
+	if err != nil {
+		return nil, fmt.Errorf("build keyring: %w", err)
+	}
+	tenants, err := buildTenants(cfg, kr)
+	if err != nil {
+		return nil, err
+	}
+	routes, err := buildRoutes(cfg)
+	if err != nil {
+		return nil, err
+	}
+	det := detect.New(detect.Options{
+		Regions:           cfg.Detect.Regions,
+		PhoneBudget:       cfg.Detect.PhoneBudget,
+		DisablePhone:      cfg.Detect.DisablePhone,
+		KeepReservedEmail: cfg.Detect.KeepReservedEmail,
+	})
+	metrics := telemetry.NewMetrics()
+	a := &App{cfg: cfg, log: log, metrics: metrics}
+	var auditor httpapi.Auditor
+	if cfg.Audit.Enabled {
+		onFull := audit.Block
+		if cfg.Audit.OnFull == "drop" {
+			onFull = audit.Drop
+		}
+		w, err := audit.NewWriter(audit.Options{Dir: cfg.Audit.Dir, Buffer: cfg.Audit.Buffer, OnFull: onFull}, log)
+		if err != nil {
+			return nil, fmt.Errorf("open audit log: %w", err)
+		}
+		a.auditor = w
+		auditor = w
+		metrics.RegisterAudit(
+			func() float64 { return float64(w.Written()) },
+			func() float64 { return float64(w.Dropped()) },
+		)
+	}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          512,
+		MaxIdleConnsPerHost:   256,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
+		DisableCompression:    true,
+	}
+	a.api = httpapi.NewServer(
+		log,
+		metrics,
+		mask.NewEngine(det, cfg.Detect.MaxEntities),
+		tenants,
+		routes,
+		transport,
+		auditor,
+		httpapi.Options{
+			TenantHeader:      cfg.Server.TenantHeader,
+			DefaultTenant:     cfg.Server.DefaultTenant,
+			MaxBodyBytes:      cfg.Server.MaxBodyBytes,
+			StreamIdleTimeout: cfg.Server.StreamIdleTimeout,
+		},
+	)
+	return a, nil
+}
+
+func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, error) {
+	out := make([]*httpapi.Tenant, 0, len(cfg.Tenants))
+	for _, t := range cfg.Tenants {
+		p, err := t.Policy()
+		if err != nil {
+			return nil, fmt.Errorf("tenant %s policy: %w", t.ID, err)
+		}
+		key, err := kr.Tenant(t.ID)
+		if err != nil {
+			return nil, fmt.Errorf("tenant %s key: %w", t.ID, err)
+		}
+		var h [32]byte
+		if _, err := hex.Decode(h[:], []byte(t.KeySHA256)); err != nil {
+			return nil, fmt.Errorf("tenant %s key hash: %w", t.ID, err)
+		}
+		foreign := restore.ForeignGeneric
+		if t.Foreign == "keep" {
+			foreign = restore.ForeignKeep
+		}
+		out = append(out, &httpapi.Tenant{
+			Mask:    &mask.Tenant{ID: t.ID, Key: key, Policy: p, TokenLength: t.TokenLength},
+			KeyHash: h,
+			Foreign: foreign,
+		})
+	}
+	return out, nil
+}
+
+func buildRoutes(cfg config.Config) ([]httpapi.Route, error) {
+	out := make([]httpapi.Route, 0, len(cfg.Routes))
+	for _, r := range cfg.Routes {
+		u, err := url.Parse(r.Upstream)
+		if err != nil {
+			return nil, fmt.Errorf("route %s upstream: %w", r.Name, err)
+		}
+		var c httpapi.Codec
+		switch r.Codec {
+		case "openai":
+			c = httpapi.NewOpenAICodec()
+		case "anthropic":
+			c = httpapi.NewAnthropicCodec()
+		default:
+			return nil, fmt.Errorf("route %s: %w %q", r.Name, ErrUnknownCodec, r.Codec)
+		}
+		out = append(
+			out,
+			httpapi.Route{Name: r.Name, Path: r.Path, Upstream: u, Codec: c, Synthesize: r.SynthesizeStream},
+		)
+	}
+	return out, nil
+}
+
+func (a *App) Handler() http.Handler {
+	return a.api.Handler()
+}
+
+func (a *App) AdminHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(a.metrics.Registry, promhttp.HandlerOpts{}))
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		writeText(w, "ok\n")
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if !a.api.Ready() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		writeText(w, "ready\n")
+	})
+	if a.cfg.Server.Pprof {
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+	}
+	return mux
+}
+
+func writeText(w http.ResponseWriter, s string) {
+	if _, err := io.WriteString(w, s); err != nil {
+		return
+	}
+}
+
+func (a *App) Run(ctx context.Context) error {
+	srv := &http.Server{
+		Addr:              a.cfg.Server.Addr,
+		Handler:           a.Handler(),
+		ReadHeaderTimeout: a.cfg.Server.ReadHeaderTimeout,
+		ReadTimeout:       a.cfg.Server.ReadTimeout,
+		IdleTimeout:       a.cfg.Server.IdleTimeout,
+		MaxHeaderBytes:    1 << 20,
+		BaseContext:       func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
+	}
+	admin := &http.Server{
+		Addr:              a.cfg.Server.AdminAddr,
+		Handler:           a.AdminHandler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+	}
+	auditCtx, stopAudit := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopAudit()
+	g, gctx := errgroup.WithContext(ctx)
+	auditDone := make(chan error, 1)
+	if a.auditor != nil {
+		go func() { auditDone <- a.auditor.Run(auditCtx) }()
+	} else {
+		auditDone <- nil
+	}
+	for _, s := range []*http.Server{srv, admin} {
+		g.Go(func() error {
+			a.log.InfoContext(ctx, "listening", slog.String("addr", s.Addr))
+			if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("listen %s: %w", s.Addr, err)
+			}
+			return nil
+		})
+	}
+	g.Go(func() error {
+		<-gctx.Done()
+		a.api.SetReady(false)
+		if ctx.Err() != nil && a.cfg.Server.ShutdownDrainDelay > 0 {
+			time.Sleep(a.cfg.Server.ShutdownDrainDelay)
+		}
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.cfg.Server.ShutdownTimeout)
+		defer cancel()
+		return errors.Join(shutdown(sctx, srv), shutdown(sctx, admin))
+	})
+	err := g.Wait()
+	stopAudit()
+	return errors.Join(err, <-auditDone)
+}
+
+func shutdown(ctx context.Context, s *http.Server) error {
+	if err := s.Shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown %s: %w", s.Addr, err)
+	}
+	return nil
+}
