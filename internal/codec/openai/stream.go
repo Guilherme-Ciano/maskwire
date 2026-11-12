@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
@@ -72,31 +71,27 @@ type StreamBody struct {
 	scratch  []byte
 	done     bool
 	err      error
-	idle     time.Duration
-	timer    *time.Timer
-	stats    restore.Stats
+	idle     *codec.IdleReader
+	header   jsontext.Value
 	events   int
 	dropped  int
 	onClose  func(restore.Stats, int, int)
 }
 
 func NewStreamBody(src io.ReadCloser, set restore.Set, o codec.StreamOptions) *StreamBody {
-	b := &StreamBody{
+	idle := codec.WatchIdle(src, o.Idle, o.OnStall)
+	return &StreamBody{
 		src:     src,
-		rd:      sse.NewReader(src, o.MaxEvent),
+		rd:      sse.NewReader(idle, o.MaxEvent),
 		set:     set,
 		opts:    o.Restore,
-		idle:    o.Idle,
+		idle:    idle,
 		onClose: o.OnClose,
 	}
-	if o.Idle > 0 && o.OnStall != nil {
-		b.timer = time.AfterFunc(o.Idle, o.OnStall)
-	}
-	return b
 }
 
 func (b *StreamBody) Stats() restore.Stats {
-	s := b.stats
+	var s restore.Stats
 	for i := range b.channels {
 		s.Add(b.channels[i].stream.Stats())
 	}
@@ -121,9 +116,7 @@ func (b *StreamBody) Read(p []byte) (int, error) {
 }
 
 func (b *StreamBody) Close() error {
-	if b.timer != nil {
-		b.timer.Stop()
-	}
+	b.idle.Stop()
 	err := b.src.Close()
 	if b.onClose != nil {
 		b.onClose(b.Stats(), b.events, b.dropped)
@@ -138,16 +131,11 @@ func (b *StreamBody) Close() error {
 func (b *StreamBody) finish(err error) {
 	b.done = true
 	b.err = err
-	if b.timer != nil {
-		b.timer.Stop()
-	}
+	b.idle.Stop()
 }
 
 func (b *StreamBody) step() {
 	ev, err := b.rd.Next()
-	if b.timer != nil {
-		b.timer.Reset(b.idle)
-	}
 	if errors.Is(err, io.EOF) {
 		b.out = b.flushAll(b.out)
 		b.finish(io.EOF)
@@ -192,6 +180,54 @@ func (b *StreamBody) held() int {
 	return n
 }
 
+func (b *StreamBody) known(k channelKey) bool {
+	for i := range b.channels {
+		if b.channels[i].key == k {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *StreamBody) reserve(choices []sChoice) error {
+	need := 0
+	for i := range choices {
+		ch := &choices[i]
+		if ch.Delta == nil {
+			continue
+		}
+		keys := make([]channelKey, 0, 2+len(ch.Delta.ToolCalls))
+		keys = append(keys, channelKey{ch.Index, kindContent, 0}, channelKey{ch.Index, kindRefusal, 0})
+		for _, tc := range ch.Delta.ToolCalls {
+			keys = append(keys, channelKey{ch.Index, kindTool, tc.Index})
+		}
+		for _, k := range keys {
+			if !b.known(k) {
+				need++
+			}
+		}
+	}
+	if len(b.channels)+need > codec.MaxChannels {
+		return codec.ErrTooManyChannels
+	}
+	return nil
+}
+
+type payloadProbe struct {
+	Usage jsontext.Value `json:"usage"`
+}
+
+func hasNoPayload(extra jsontext.Value) bool {
+	if len(extra) == 0 {
+		return true
+	}
+	var p payloadProbe
+	if err := json.Unmarshal(extra, &p); err != nil {
+		return false
+	}
+	return len(p.Usage) == 0 || string(p.Usage) == "null"
+}
+
 func (b *StreamBody) channel(k channelKey) (*restore.Stream, error) {
 	for i := range b.channels {
 		if b.channels[i].key == k {
@@ -232,7 +268,11 @@ func (b *StreamBody) rewrite(data []byte) (encoded []byte, keep bool, err error)
 	if len(c.Choices) == 0 {
 		return data, true, nil
 	}
-	empty := true
+	b.header = append(b.header[:0], c.Extra...)
+	if err := b.reserve(c.Choices); err != nil {
+		return nil, false, err
+	}
+	empty := hasNoPayload(c.Extra)
 	for i := range c.Choices {
 		ch := &c.Choices[i]
 		if ch.Delta == nil {
@@ -353,6 +393,9 @@ func (b *StreamBody) flushAll(dst []byte) []byte {
 	}
 	var c sChunk
 	c.Extra = jsontext.Value(`{"object":"chat.completion.chunk"}`)
+	if len(b.header) > 0 {
+		c.Extra = withoutUsage(b.header)
+	}
 	for i := range b.channels {
 		ch := &b.channels[i]
 		if ch.stream.Held() == 0 {
@@ -375,4 +418,17 @@ func (b *StreamBody) flushAll(dst []byte) []byte {
 		return dst
 	}
 	return sse.AppendEvent(dst, sse.Event{Data: out, HasData: true})
+}
+
+func withoutUsage(extra jsontext.Value) jsontext.Value {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(extra, &m); err != nil {
+		return jsontext.Value(`{"object":"chat.completion.chunk"}`)
+	}
+	delete(m, "usage")
+	out, err := json.Marshal(m, json.Deterministic(true))
+	if err != nil {
+		return jsontext.Value(`{"object":"chat.completion.chunk"}`)
+	}
+	return out
 }

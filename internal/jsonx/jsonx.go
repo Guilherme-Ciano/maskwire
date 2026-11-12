@@ -24,7 +24,23 @@ type Frame struct {
 }
 
 func (f Frame) Is(name string) bool {
-	return len(f.Name) == len(name)+2 && string(f.Name[1:len(f.Name)-1]) == name
+	return !f.Array && string(f.Name) == name
+}
+
+func IsString(raw []byte) bool {
+	return len(raw) > 0 && raw[0] == '"'
+}
+
+func decodeName(raw []byte) ([]byte, error) {
+	inner := raw[1 : len(raw)-1]
+	if bytes.IndexByte(inner, '\\') < 0 {
+		return inner, nil
+	}
+	out, err := jsontext.AppendUnquote(nil, raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode name: %w", err)
+	}
+	return out, nil
 }
 
 type Visitor func(dst []byte, path []Frame, raw []byte) ([]byte, bool, error)
@@ -79,6 +95,7 @@ type pass struct {
 	w     *walker
 	doc   []byte
 	dst   []byte
+	tmp   []byte
 	last  int
 	visit Visitor
 }
@@ -121,7 +138,11 @@ func (p *pass) step() error {
 			return fmt.Errorf("read name: %w", err)
 		}
 		end := int(w.dec.InputOffset())
-		w.stack[top].Name = p.doc[end-len(raw) : end]
+		name, err := decodeName(p.doc[end-len(raw) : end])
+		if err != nil {
+			return err
+		}
+		w.stack[top].Name = name
 		return nil
 	}
 	if top >= 0 && w.stack[top].Array && kind != ']' {
@@ -141,9 +162,9 @@ func (p *pass) step() error {
 			return fmt.Errorf("read token: %w", err)
 		}
 		w.stack = w.stack[:top]
-	case jsontext.KindString:
+	case jsontext.KindString, jsontext.KindNumber:
 		return p.str()
-	case jsontext.KindNull, jsontext.KindFalse, jsontext.KindTrue, jsontext.KindNumber:
+	case jsontext.KindNull, jsontext.KindFalse, jsontext.KindTrue:
 		if _, err := w.dec.ReadValue(); err != nil {
 			return fmt.Errorf("read value: %w", err)
 		}
@@ -164,17 +185,14 @@ func (p *pass) str() error {
 	}
 	end := int(w.dec.InputOffset())
 	start := end - len(raw)
-	mark := len(p.dst)
-	p.dst = append(p.dst, p.doc[p.last:start]...)
-	var handled bool
-	p.dst, handled, err = p.visit(p.dst, w.stack, p.doc[start:end])
+	out, handled, err := p.visit(p.tmp[:0], w.stack, p.doc[start:end])
+	p.tmp = out
 	if err != nil {
 		return err
 	}
 	if handled {
+		p.dst = append(append(p.dst, p.doc[p.last:start]...), out...)
 		p.last = end
-	} else {
-		p.dst = p.dst[:mark]
 	}
 	return nil
 }
@@ -206,4 +224,33 @@ func appendQuoteLossy(dst, s []byte) []byte {
 
 func Valid(doc []byte) bool {
 	return jsontext.Value(doc).IsValid()
+}
+
+const minBlob = 128
+
+func LooksBase64(raw []byte) bool {
+	if len(raw) < minBlob+2 || !IsString(raw) {
+		return false
+	}
+	for _, c := range raw[1 : len(raw)-1] {
+		ok := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '+' || c == '/' || c == '=' || c == '-' || c == '_' || c == '\\'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func HasPrefix(raw []byte, prefix string) bool {
+	return IsString(raw) && bytes.HasPrefix(raw[1:], []byte(prefix))
+}
+
+func Under(path []Frame, name string) bool {
+	for _, f := range path {
+		if f.Is(name) {
+			return true
+		}
+	}
+	return false
 }

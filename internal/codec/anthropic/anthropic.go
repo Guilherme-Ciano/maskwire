@@ -29,57 +29,67 @@ func ParseMeta(body []byte) (codec.Meta, error) {
 	return codec.Meta{Model: m.Model, Stream: m.Stream}, nil
 }
 
-func protected(f jsonx.Frame) bool {
-	return f.Is("thinking") || f.Is("signature") || f.Is("data") || f.Is("source") || f.Is("type") ||
-		f.Is("id") || f.Is("tool_use_id") || f.Is("name") || f.Is("cache_control") || f.Is("citations")
+func skipTop(name []byte) bool {
+	switch string(name) {
+	case "model",
+		"tool_choice",
+		"thinking",
+		"service_tier",
+		"container",
+		"mcp_servers",
+		"output_format",
+		"stop_sequences":
+		return true
+	}
+	return false
 }
 
-func blockText(path []jsonx.Frame) bool {
-	if len(path) == 0 {
-		return false
+func skipLeaf(name []byte) bool {
+	switch string(name) {
+	case "type", "id", "tool_use_id", "signature", "thinking", "media_type", "role", "file_id":
+		return true
 	}
-	for _, f := range path {
-		if !f.Array && protected(f) {
-			return false
-		}
-	}
-	leaf := path[len(path)-1]
-	return leaf.Array || leaf.Is("text") || leaf.Is("content")
+	return false
 }
 
 func underInput(path []jsonx.Frame) bool {
-	for _, f := range path {
-		if !f.Array && f.Is("input") {
-			return true
-		}
-	}
-	return false
+	return len(path) >= 3 && path[0].Is("messages") && jsonx.Under(path[2:], "input")
 }
 
-func requestTarget(path []jsonx.Frame) bool {
-	switch {
-	case len(path) == 1 && path[0].Is("system"):
-		return true
-	case len(path) >= 1 && path[0].Is("system"):
-		return blockText(path[1:])
-	case len(path) == 2 && path[0].Is("metadata") && path[1].Is("user_id"):
-		return true
-	case len(path) >= 3 && path[0].Is("messages") && path[2].Is("content"):
-		rest := path[2:]
-		if underInput(rest) {
-			return true
-		}
-		return blockText(rest)
+func toolDefinition(path []jsonx.Frame) bool {
+	return len(path) >= 2 && path[0].Is("tools") && (jsonx.Under(path, "input_schema") || path[len(path)-1].Is("name"))
+}
+
+func toolUseName(path []jsonx.Frame) bool {
+	n := len(path)
+	return n >= 4 && path[0].Is("messages") && path[n-1].Is("name") && !jsonx.Under(path[2:], "input")
+}
+
+func requestTarget(path []jsonx.Frame, raw []byte) bool {
+	if len(path) == 0 {
+		return false
 	}
-	return false
+	if !jsonx.IsString(raw) {
+		return underInput(path)
+	}
+	leaf := path[len(path)-1]
+	switch {
+	case skipTop(path[0].Name), toolDefinition(path), toolUseName(path), jsonx.Under(path, "cache_control"):
+		return false
+	case underInput(path):
+		return true
+	case !leaf.Array && skipLeaf(leaf.Name), jsonx.LooksBase64(raw):
+		return false
+	}
+	return true
 }
 
 func (c *Codec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
 	out, err := c.rw.Rewrite(dst, body, func(dst []byte, path []jsonx.Frame, raw []byte) ([]byte, bool, error) {
-		if !requestTarget(path) {
+		if !requestTarget(path, raw) {
 			return dst, false, nil
 		}
-		return m.MaskQuoted(dst, raw)
+		return m.MaskLeaf(dst, raw)
 	})
 	if err != nil {
 		return out, fmt.Errorf("mask anthropic request: %w", err)
@@ -87,11 +97,12 @@ func (c *Codec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
 	return out, nil
 }
 
-func responseTarget(path []jsonx.Frame) bool {
-	if len(path) < 3 || !path[0].Is("content") {
+func responseTarget(path []jsonx.Frame, raw []byte) bool {
+	if len(path) < 2 || !path[0].Is("content") || !jsonx.IsString(raw) {
 		return false
 	}
-	return (len(path) == 3 && path[2].Is("text")) || underInput(path[2:])
+	leaf := path[len(path)-1]
+	return jsonx.Under(path, "input") || leaf.Is("text")
 }
 
 func (c *Codec) RestoreBody(dst, body []byte, set restore.Set, o restore.Options) ([]byte, restore.Stats, error) {
@@ -99,7 +110,7 @@ func (c *Codec) RestoreBody(dst, body []byte, set restore.Set, o restore.Options
 	var scratch, restored []byte
 	o.Encoding = restore.Raw
 	out, err := c.rw.Rewrite(dst, body, func(dst []byte, path []jsonx.Frame, raw []byte) ([]byte, bool, error) {
-		if !responseTarget(path) {
+		if !responseTarget(path, raw) {
 			return dst, false, nil
 		}
 		var err error

@@ -3,7 +3,6 @@ server:
   admin_addr: ":9090"
   shutdown_drain_delay: 1s
 keys:
-  master_key_file: /etc/maskwire/master.key
   version: 1
 audit:
   enabled: true

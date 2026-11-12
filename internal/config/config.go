@@ -17,12 +17,18 @@ import (
 	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
 
+	"github.com/Guilherme-Ciano/maskwire/internal/audit"
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
 	"github.com/Guilherme-Ciano/maskwire/internal/policy"
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
 const EnvPrefix = "MASKWIRE_"
+
+var (
+	ErrKeyFilePerms = errors.New("master key file must not be accessible by other users")
+	ErrKeyEncoding  = errors.New("master key must be hex encoded")
+)
 
 type Config struct {
 	Server  Server   `koanf:"server"`
@@ -103,7 +109,7 @@ func Defaults() Config {
 	return Config{
 		Server: Server{
 			Addr:               ":8090",
-			AdminAddr:          ":9090",
+			AdminAddr:          "127.0.0.1:9090",
 			ReadHeaderTimeout:  5 * time.Second,
 			ReadTimeout:        30 * time.Second,
 			IdleTimeout:        120 * time.Second,
@@ -155,6 +161,13 @@ func Load(path string, environ func() []string) (Config, error) {
 
 func (c *Config) MasterKey() ([]byte, error) {
 	if c.Keys.MasterKeyFile != "" {
+		st, err := os.Stat(filepath.Clean(c.Keys.MasterKeyFile))
+		if err != nil {
+			return nil, fmt.Errorf("stat master key file: %w", err)
+		}
+		if st.Mode().Perm()&0o007 != 0 {
+			return nil, ErrKeyFilePerms
+		}
 		b, err := os.ReadFile(filepath.Clean(c.Keys.MasterKeyFile))
 		if err != nil {
 			return nil, fmt.Errorf("read master key file: %w", err)
@@ -167,7 +180,7 @@ func (c *Config) MasterKey() ([]byte, error) {
 func decodeKey(s string) ([]byte, error) {
 	b, err := hex.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("master key must be hex: %w", err)
+		return nil, ErrKeyEncoding
 	}
 	if len(b) < token.MinMasterKeyLen {
 		return nil, token.ErrShortMasterKey
@@ -191,8 +204,10 @@ func (c *Config) Validate() error {
 	if c.Server.TenantHeader == "" {
 		errs = append(errs, errors.New("server.tenant_header is required"))
 	}
-	if _, err := c.MasterKey(); err != nil {
+	if key, err := c.MasterKey(); err != nil {
 		errs = append(errs, fmt.Errorf("keys: %w", err))
+	} else {
+		clear(key)
 	}
 	if c.Keys.Version < 1 || c.Keys.Version > 65535 {
 		errs = append(errs, errors.New("keys.version must be in 1..65535"))
@@ -246,8 +261,8 @@ func (r Route) validate(i int, paths map[string]bool) []error {
 
 func (t Tenant) validate(i int, ids map[string]bool) []error {
 	var errs []error
-	if t.ID == "" || ids[t.ID] || strings.ContainsAny(t.ID, `/\. `) {
-		errs = append(errs, fmt.Errorf("tenants[%d].id must be unique and contain no path characters", i))
+	if !audit.ValidTenant(t.ID) || ids[t.ID] {
+		errs = append(errs, fmt.Errorf("tenants[%d].id must be unique, at most 64 chars of [A-Za-z0-9._-]", i))
 	}
 	ids[t.ID] = true
 	if b, err := hex.DecodeString(t.KeySHA256); err != nil || len(b) != sha256.Size {

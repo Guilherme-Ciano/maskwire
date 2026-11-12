@@ -1,6 +1,7 @@
 package token
 
 import (
+	"bytes"
 	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -35,6 +36,14 @@ func NewKeyring(master []byte, version uint16) (*Keyring, error) {
 	k := &Keyring{master: make([]byte, len(master)), version: version}
 	copy(k.master, master)
 	return k, nil
+}
+
+func (k *Keyring) AuditKey() ([]byte, error) {
+	key, err := hkdf.Key(sha256.New, k.master, nil, "maskwire-audit-v1", 32)
+	if err != nil {
+		return nil, fmt.Errorf("derive audit key: %w", err)
+	}
+	return key, nil
 }
 
 func (k *Keyring) Version() uint16 {
@@ -134,7 +143,24 @@ func upper(c byte) byte {
 	return c
 }
 
+func foldWide(raw []byte) []byte {
+	if bytes.IndexByte(raw, 0xEF) < 0 {
+		return raw
+	}
+	out := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if i+2 < len(raw) && raw[i] == 0xEF && raw[i+1] == 0xBC && raw[i+2] >= 0x90 && raw[i+2] <= 0x99 {
+			out = append(out, '0'+raw[i+2]-0x90)
+			i += 2
+			continue
+		}
+		out = append(out, raw[i])
+	}
+	return out
+}
+
 func AppendCanonical(dst []byte, t entity.Type, raw []byte) []byte {
+	raw = foldWide(raw)
 	switch t {
 	case entity.Email:
 		for _, c := range raw {

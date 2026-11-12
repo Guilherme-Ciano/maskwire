@@ -18,7 +18,7 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
-func session(tb testing.TB) *mask.Session {
+func engineAndTenant(tb testing.TB) (*mask.Engine, *mask.Tenant) {
 	tb.Helper()
 	kr, err := token.NewKeyring(bytes.Repeat([]byte{1}, 32), 1)
 	if err != nil {
@@ -29,7 +29,13 @@ func session(tb testing.TB) *mask.Session {
 		tb.Fatal(err)
 	}
 	eng := mask.NewEngine(detect.New(detect.Options{}), 0)
-	return eng.NewSession(&mask.Tenant{ID: "acme", Key: tk, Policy: policy.New(policy.Enforce, policy.Mask)})
+	return eng, &mask.Tenant{ID: "acme", Key: tk, Policy: policy.New(policy.Enforce, policy.Mask)}
+}
+
+func session(tb testing.TB) *mask.Session {
+	tb.Helper()
+	eng, tn := engineAndTenant(tb)
+	return eng.NewSession(tn)
 }
 
 const reqBody = `{"model":"gpt-4.1-mini","stream":true,"messages":[` +
@@ -47,16 +53,14 @@ func TestMaskRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(out)
-	if strings.Count(got, "ana.silva@empresa.com.br") != 1 ||
-		!strings.Contains(got, `"description":"send to ana.silva@empresa.com.br"`) {
-		t.Fatalf("expected only the tool description to keep the email: %s", got)
+	if strings.Contains(got, "ana.silva@empresa.com.br") || strings.Contains(got, "PT50") {
+		t.Fatalf("raw values reached the upstream body: %s", got)
 	}
-	if strings.Contains(got, "PT50") || !strings.Contains(got, "base64,QUJD 529.982.247-25") ||
-		strings.Count(got, "529.982.247-25") != 1 {
-		t.Fatalf("unexpected masking: %s", got)
+	if !strings.Contains(got, "base64,QUJD 529.982.247-25") || strings.Count(got, "529.982.247-25") != 1 {
+		t.Fatalf("data URLs must stay untouched and everything else masked: %s", got)
 	}
-	if !strings.Contains(got, `\"n\":52998224725`) {
-		t.Fatalf("numbers inside arguments must stay: %s", got)
+	if !strings.Contains(got, `\"n\":\"[CPF_`) || !strings.Contains(got, `"name":"send"`) {
+		t.Fatalf("numeric PII in arguments must become a token, function names must stay: %s", got)
 	}
 	if !jsontext.Value(out).IsValid() {
 		t.Fatalf("invalid json: %s", got)

@@ -141,36 +141,57 @@ func runDetect(stdin io.Reader, stdout, stderr io.Writer, tenant string) error {
 	return nil
 }
 
+func auditSealer(path string) (*audit.Sealer, error) {
+	cfg, err := config.Load(configPath(path), os.Environ)
+	if err != nil {
+		return nil, err
+	}
+	master, err := cfg.MasterKey()
+	if err != nil {
+		return nil, fmt.Errorf("load master key: %w", err)
+	}
+	kr, err := token.NewKeyring(master, 1)
+	clear(master)
+	if err != nil {
+		return nil, err
+	}
+	key, err := kr.AuditKey()
+	if err != nil {
+		return nil, err
+	}
+	defer clear(key)
+	return audit.NewSealer(key), nil
+}
+
 func auditCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "audit", Short: "Audit log tools"}
-	var dir string
+	var dir, path string
 	verify := &cobra.Command{
-		Use:   "verify [file...]",
-		Short: "Verify the hash chain of audit files (a directory or explicit files)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out := cmd.OutOrStdout()
-			if len(args) > 0 {
-				for _, f := range args {
-					n, head, err := audit.VerifyFile(f)
-					if err != nil {
-						return err
-					}
-					fmt.Fprintf(out, "ok\t%s\trecords=%d\thead=sha256:%x\n", f, n, head)
-				}
-				return nil
-			}
-			rep, err := audit.VerifyDir(dir)
+		Use:   "verify",
+		Short: "Verify the HMAC chain of every tenant and day file under the audit directory",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			sealer, err := auditSealer(path)
 			if err != nil {
 				return err
 			}
-			for f, head := range rep.Head {
-				fmt.Fprintf(out, "ok\t%s\thead=%s\n", f, head)
+			rep, err := audit.VerifyDir(dir, sealer)
+			if err != nil {
+				return err
 			}
-			fmt.Fprintf(out, "verified %d files, %d records\n", rep.Files, rep.Records)
+			out := cmd.OutOrStdout()
+			for f, head := range rep.Head {
+				if _, err := fmt.Fprintf(out, "ok\t%s\thead=%s\n", f, head); err != nil {
+					return fmt.Errorf("write report: %w", err)
+				}
+			}
+			if _, err := fmt.Fprintf(out, "verified %d files, %d records\n", rep.Files, rep.Records); err != nil {
+				return fmt.Errorf("write report: %w", err)
+			}
 			return nil
 		},
 	}
 	verify.Flags().StringVar(&dir, "dir", "audit", "audit directory")
+	verify.Flags().StringVar(&path, "config", "", "config file holding the master key (or MASKWIRE_CONFIG / env)")
 	cmd.AddCommand(verify)
 	return cmd
 }

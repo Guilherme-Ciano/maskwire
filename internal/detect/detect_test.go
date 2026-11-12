@@ -57,6 +57,17 @@ func TestDetect(t *testing.T) {
 		{"tel 912 345 678", []hit{{"912 345 678", entity.Phone}}},
 		{"order 12345 shipped", nil},
 		{"token [EMAIL_K7Q2M] stays", nil},
+		{"iban pt50 0002 0123 1234 5678 9015 4 low", []hit{{"pt50 0002 0123 1234 5678 9015 4", entity.IBAN}}},
+		{"dni 12345678z y cf rssmra85t10a562s", []hit{{"12345678z", entity.ESDNI}, {"rssmra85t10a562s", entity.ITCF}}},
+		{
+			"cpf \uff15\uff12\uff19.\uff19\uff18\uff12.\uff12\uff14\uff17-\uff12\uff15 wide",
+			[]hit{{"\uff15\uff12\uff19.\uff19\uff18\uff12.\uff12\uff14\uff17-\uff12\uff15", entity.CPF}},
+		},
+		{"cpf 529\u00ad982\u2013247\u201025", []hit{{"529\u00ad982\u2013247\u201025", entity.CPF}}},
+		{"cpf 529\ufeff982\u3000247\u200e25", []hit{{"529\ufeff982\u3000247\u200e25", entity.CPF}}},
+		{"tel 912\u2013345\u2013678", []hit{{"912\u2013345\u2013678", entity.Phone}}},
+		{"mail jo\u00e3o.s\u00e1@acme.io ok", []hit{{"jo\u00e3o.s\u00e1@acme.io", entity.Email}}},
+		{"plain words like abc def and x1 stay", nil},
 		{"cpf\u00a0529.982.247\u200b-25", []hit{{"529.982.247\u200b-25", entity.CPF}}},
 	}
 	for _, tc := range cases {
@@ -70,6 +81,22 @@ func TestDetect(t *testing.T) {
 				t.Errorf("%q: got %v, want %v", tc.in, got, tc.want)
 			}
 		}
+	}
+}
+
+func TestPhoneBudgetIsShared(t *testing.T) {
+	t.Parallel()
+	d := New(Options{PhoneBudget: 2, Regions: []string{"PT"}})
+	budget := d.PhoneBudget()
+	for range 4 {
+		d.DetectBudget(nil, []byte("ligue 912 345 678"), &budget)
+	}
+	if budget != 0 {
+		t.Fatalf("budget %d must be consumed across calls", budget)
+	}
+	spans := d.DetectBudget(nil, []byte("ligue 912 345 678"), &budget)
+	if len(spans) != 1 || spans[0].Score >= 0.85 {
+		t.Fatalf("exhausted budget must still mask with low score: %+v", spans)
 	}
 }
 

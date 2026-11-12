@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -33,6 +34,8 @@ const (
 	maxResponseBytes = 32 << 20
 	HeaderMasked     = "X-Maskwire-Masked"
 	HeaderRestored   = "X-Maskwire-Restored"
+
+	statusClientClosed = 499
 )
 
 var (
@@ -120,18 +123,27 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer s.handlePanic(w, r)
-		next.ServeHTTP(w, r)
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		defer s.handlePanic(sw, r)
+		next.ServeHTTP(sw, r)
 	})
 }
 
-func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePanic(w *statusWriter, r *http.Request) {
 	v := recover()
 	if v == nil {
 		return
 	}
 	if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 		panic(v)
+	}
+	if w.wrote {
+		s.log.ErrorContext(
+			r.Context(),
+			"handler panic after response started",
+			slog.String("panic_type", fmt.Sprintf("%T", v)),
+		)
+		panic(http.ErrAbortHandler)
 	}
 	s.log.ErrorContext(r.Context(), "handler panic", slog.String("panic_type", fmt.Sprintf("%T", v)))
 	writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
@@ -169,6 +181,7 @@ type exchange struct {
 	outHash  hash.Hash
 	stats    restore.Stats
 	stream   bool
+	stalled  bool
 	status   int
 }
 
@@ -181,7 +194,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	}
 	x.tenant = tenant
 	observe := tenant.Mask.Policy.Mode == policy.Observe
-	if s.auditor != nil && !s.auditor.Healthy() && !observe {
+	if s.auditor != nil && !s.auditor.Healthy() {
 		s.fail(w, r, x, http.StatusServiceUnavailable, "audit_unavailable", ErrAuditUnavailable)
 		return
 	}
@@ -257,19 +270,36 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, ma
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			return s.modifyResponse(resp, x, observe, func() { cancel(codec.ErrUpstreamStalled) })
+			return s.modifyResponse(resp, x, observe, func() {
+				x.stalled = true
+				cancel(codec.ErrUpstreamStalled)
+			})
 		},
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			s.upstreamError(w, req, x, err)
 		},
 	}
+	defer func() {
+		x.status = sw.status
+		if v := recover(); v != nil {
+			x.status = statusClientClosed
+			if x.stalled {
+				x.status = http.StatusGatewayTimeout
+			}
+			s.finish(r, x)
+			panic(v)
+		}
+		s.finish(r, x)
+	}()
 	rp.ServeHTTP(sw, r.WithContext(ctx))
-	x.status = sw.status
-	s.finish(r, x)
 }
 
 func (s *Server) modifyResponse(resp *http.Response, x *exchange, observe bool, onStall func()) error {
-	resp.Header.Set(HeaderMasked, strconv.FormatUint(uint64(x.session.Counters().TotalAction(policy.Mask)), 10))
+	masked := uint64(x.session.Counters().TotalAction(policy.Mask))
+	if observe {
+		masked = 0
+	}
+	resp.Header.Set(HeaderMasked, strconv.FormatUint(masked, 10))
 	if observe || resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
@@ -335,13 +365,13 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange, observe bool, 
 }
 
 func (s *Server) upstreamError(w http.ResponseWriter, r *http.Request, x *exchange, err error) {
-	cause := context.Cause(r.Context())
 	status, kind := http.StatusBadGateway, "upstream_error"
+	var ne net.Error
 	switch {
-	case errors.Is(cause, codec.ErrUpstreamStalled) || errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
 		status, kind = http.StatusGatewayTimeout, "upstream_timeout"
 	case errors.Is(err, context.Canceled):
-		status, kind = 499, "client_closed"
+		status, kind = statusClientClosed, "client_closed"
 	case errors.Is(err, ErrUpstreamEncoding), errors.Is(err, ErrResponseTooLarge):
 		kind = "upstream_unsupported"
 	}
@@ -434,7 +464,7 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(code int) {
-	if !w.wrote {
+	if code >= http.StatusOK && !w.wrote {
 		w.status = code
 		w.wrote = true
 	}

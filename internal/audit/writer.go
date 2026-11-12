@@ -10,6 +10,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -19,6 +23,9 @@ const (
 	batchMax      = 1000
 	tailWindow    = 64 << 10
 	dayLayout     = "2006-01-02"
+	maxTenantLen  = 64
+	probeEvery    = 5 * time.Second
+	idleClose     = 2 * time.Minute
 )
 
 var (
@@ -36,28 +43,33 @@ const (
 
 type Options struct {
 	Dir    string
+	Key    []byte
 	Buffer int
 	OnFull OnFull
 	Now    func() time.Time
 }
 
 type chain struct {
-	day  string
-	f    *os.File
-	bw   *bufio.Writer
-	prev [32]byte
+	tenant string
+	day    string
+	f      *os.File
+	bw     *bufio.Writer
+	prev   [32]byte
+	used   time.Time
 }
 
 type Writer struct {
 	opts    Options
+	sealer  *Sealer
 	ch      chan Event
 	log     *slog.Logger
 	chains  map[string]*chain
 	buf     []byte
+	mu      sync.RWMutex
+	closed  bool
 	written atomic.Uint64
 	dropped atomic.Uint64
 	failed  atomic.Bool
-	closed  atomic.Bool
 }
 
 func NewWriter(o Options, log *slog.Logger) (*Writer, error) {
@@ -67,10 +79,15 @@ func NewWriter(o Options, log *slog.Logger) (*Writer, error) {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
+	if len(o.Key) == 0 {
+		return nil, errors.New("audit key is required")
+	}
 	if err := os.MkdirAll(o.Dir, 0o750); err != nil {
 		return nil, fmt.Errorf("create audit dir: %w", err)
 	}
-	return &Writer{opts: o, ch: make(chan Event, o.Buffer), log: log, chains: map[string]*chain{}}, nil
+	return &Writer{
+		opts: o, sealer: NewSealer(o.Key), ch: make(chan Event, o.Buffer), log: log, chains: map[string]*chain{},
+	}, nil
 }
 
 func (w *Writer) Written() uint64 {
@@ -86,11 +103,11 @@ func (w *Writer) Healthy() bool {
 }
 
 func (w *Writer) Enqueue(ctx context.Context, e *Event) error {
-	if w.closed.Load() {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.closed {
+		w.dropped.Add(1)
 		return ErrClosed
-	}
-	if w.failed.Load() {
-		return ErrUnavailable
 	}
 	if w.opts.OnFull == Drop {
 		select {
@@ -111,15 +128,31 @@ func (w *Writer) Enqueue(ctx context.Context, e *Event) error {
 
 func (w *Writer) Run(ctx context.Context) error {
 	defer w.closeAll()
+	tick := time.NewTicker(probeEvery)
+	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			w.closed.Store(true)
-			w.drain()
+			w.shutdown()
 			return nil
 		case e := <-w.ch:
 			w.batch(e)
+		case <-tick.C:
+			w.maintain()
 		}
+	}
+}
+
+func (w *Writer) shutdown() {
+	for {
+		w.drain()
+		if w.mu.TryLock() {
+			w.closed = true
+			w.mu.Unlock()
+			w.drain()
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -155,6 +188,11 @@ func (w *Writer) fail(op string, err error) {
 }
 
 func (w *Writer) write(e *Event, touched map[*chain]struct{}) {
+	if !ValidTenant(e.Tenant) {
+		w.dropped.Add(1)
+		w.log.Error("audit event dropped", slog.String("reason", "invalid tenant id"))
+		return
+	}
 	c, err := w.chainFor(e.Tenant, e.TS)
 	if err != nil {
 		w.fail("open", err)
@@ -162,16 +200,23 @@ func (w *Writer) write(e *Event, touched map[*chain]struct{}) {
 		return
 	}
 	w.buf = e.appendBody(w.buf[:0])
-	var sum [32]byte
-	w.buf, sum = seal(w.buf, &c.prev)
-	if _, err := c.bw.Write(w.buf); err != nil {
+	if err := w.append(c, w.buf); err != nil {
 		w.fail("write", err)
 		w.dropped.Add(1)
 		return
 	}
-	c.prev = sum
 	touched[c] = struct{}{}
 	w.written.Add(1)
+}
+
+func (w *Writer) append(c *chain, body []byte) error {
+	line, sum := w.sealer.seal(body, &c.prev)
+	if _, err := c.bw.Write(line); err != nil {
+		return fmt.Errorf("write audit record: %w", err)
+	}
+	c.prev = sum
+	c.used = w.opts.Now()
+	return nil
 }
 
 func (w *Writer) sync(touched map[*chain]struct{}) {
@@ -186,13 +231,40 @@ func (w *Writer) sync(touched map[*chain]struct{}) {
 	}
 }
 
-func validTenant(id string) bool {
-	if id == "" || id == "." || id == ".." || len(id) > 64 {
+func (w *Writer) maintain() {
+	now := w.opts.Now()
+	for key, c := range w.chains {
+		if now.Sub(c.used) > idleClose {
+			w.closeChain(c)
+			delete(w.chains, key)
+		}
+	}
+	if w.failed.Load() && w.probe() == nil {
+		w.failed.Store(false)
+		w.log.Info("audit log recovered")
+	}
+}
+
+func (w *Writer) probe() error {
+	for _, c := range w.chains {
+		if err := errors.Join(c.bw.Flush(), c.f.Sync()); err != nil {
+			return fmt.Errorf("probe chain: %w", err)
+		}
+	}
+	f, err := os.CreateTemp(w.opts.Dir, ".probe-*")
+	if err != nil {
+		return fmt.Errorf("probe create: %w", err)
+	}
+	name := f.Name()
+	return errors.Join(f.Sync(), f.Close(), os.Remove(name))
+}
+
+func ValidTenant(id string) bool {
+	if id == "" || id == "." || id == ".." || len(id) > maxTenantLen {
 		return false
 	}
 	for i := range len(id) {
-		c := id[i]
-		if !tenantChar(c) {
+		if !tenantChar(id[i]) {
 			return false
 		}
 	}
@@ -209,56 +281,95 @@ func FilePath(dir, tenant, day string) string {
 }
 
 func (w *Writer) chainFor(tenant string, ts time.Time) (*chain, error) {
-	if !validTenant(tenant) {
-		return nil, ErrBadTenant
-	}
 	day := ts.UTC().Format(dayLayout)
-	c, ok := w.chains[tenant]
-	if ok && c.day == day {
+	key := tenant + "/" + day
+	if c, ok := w.chains[key]; ok {
 		return c, nil
-	}
-	if ok {
-		if err := c.bw.Flush(); err != nil {
-			return nil, fmt.Errorf("flush audit file: %w", err)
-		}
-		if err := c.f.Close(); err != nil {
-			return nil, fmt.Errorf("close audit file: %w", err)
-		}
-		delete(w.chains, tenant)
 	}
 	c, err := w.open(tenant, day)
 	if err != nil {
 		return nil, err
 	}
-	w.chains[tenant] = c
+	w.chains[key] = c
 	return c, nil
+}
+
+func dayFiles(dir, tenant string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, tenant, "*.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("list audit files: %w", err)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func dayOf(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), ".jsonl")
+}
+
+func previousDay(dir, tenant, day string) (prevDay string, head *[32]byte, err error) {
+	files, err := dayFiles(dir, tenant)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, path := range slices.Backward(files) {
+		d := dayOf(path)
+		if d >= day {
+			continue
+		}
+		f, err := os.Open(filepath.Clean(path))
+		if err != nil {
+			return "", nil, fmt.Errorf("open previous audit file: %w", err)
+		}
+		h, _, terr := tail(f)
+		if cerr := f.Close(); cerr != nil {
+			return "", nil, fmt.Errorf("close previous audit file: %w", cerr)
+		}
+		if terr != nil {
+			return "", nil, terr
+		}
+		return d, h, nil
+	}
+	return "", nil, nil
 }
 
 func (w *Writer) open(tenant, day string) (*chain, error) {
 	if err := os.MkdirAll(filepath.Join(w.opts.Dir, tenant), 0o750); err != nil {
 		return nil, fmt.Errorf("create tenant audit dir: %w", err)
 	}
-	path := FilePath(w.opts.Dir, tenant, day)
-	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(filepath.Clean(FilePath(w.opts.Dir, tenant, day)), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open audit file: %w", err)
 	}
-	c := &chain{day: day, f: f, bw: bufio.NewWriterSize(f, 64<<10), prev: Genesis(tenant, day)}
+	c := &chain{tenant: tenant, day: day, f: f, bw: bufio.NewWriterSize(f, 64<<10), prev: w.sealer.Genesis(tenant, day)}
 	prev, torn, err := tail(f)
 	if err != nil {
 		return nil, errors.Join(err, f.Close())
 	}
+	if err := w.start(c, prev, torn); err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	return c, nil
+}
+
+func (w *Writer) start(c *chain, prev *[32]byte, torn int) error {
 	if prev != nil {
 		c.prev = *prev
 	}
 	if torn > 0 {
-		line, sum := seal(recoveryBody([]byte{'\n'}, w.opts.Now(), torn)[1:], &c.prev)
-		if _, err := c.bw.Write(append([]byte{'\n'}, line...)); err != nil {
-			return nil, errors.Join(fmt.Errorf("write recovery record: %w", err), f.Close())
+		if err := c.bw.WriteByte('\n'); err != nil {
+			return fmt.Errorf("terminate torn record: %w", err)
 		}
-		c.prev = sum
+		return w.append(c, recoveryBody(nil, w.opts.Now(), torn))
 	}
-	return c, nil
+	if prev != nil {
+		return nil
+	}
+	prevDay, head, err := previousDay(w.opts.Dir, c.tenant, c.day)
+	if err != nil {
+		return err
+	}
+	return w.append(c, openBody(nil, w.opts.Now(), prevDay, head))
 }
 
 func tail(f *os.File) (prev *[32]byte, torn int, err error) {
@@ -284,25 +395,28 @@ func tail(f *os.File) (prev *[32]byte, torn int, err error) {
 		return nil, torn, nil
 	}
 	lines := bytes.Split(bytes.TrimSuffix(buf, []byte{'\n'}), []byte{'\n'})
-	last := lines[len(lines)-1]
-	sum, ok := lineHash(last)
+	sum, ok := lineHash(lines[len(lines)-1])
 	if !ok {
 		return nil, torn, fmt.Errorf("audit file tail is not a sealed record: %w", ErrBrokenChain)
 	}
 	return &sum, torn, nil
 }
 
+func (w *Writer) closeChain(c *chain) {
+	if err := c.bw.Flush(); err != nil {
+		w.fail("flush", err)
+	}
+	if err := c.f.Sync(); err != nil {
+		w.fail("sync", err)
+	}
+	if err := c.f.Close(); err != nil {
+		w.fail("close", err)
+	}
+}
+
 func (w *Writer) closeAll() {
-	for t, c := range w.chains {
-		if err := c.bw.Flush(); err != nil {
-			w.fail("flush", err)
-		}
-		if err := c.f.Sync(); err != nil {
-			w.fail("sync", err)
-		}
-		if err := c.f.Close(); err != nil {
-			w.fail("close", err)
-		}
-		delete(w.chains, t)
+	for key, c := range w.chains {
+		w.closeChain(c)
+		delete(w.chains, key)
 	}
 }

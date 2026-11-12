@@ -75,7 +75,15 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		if cfg.Audit.OnFull == "drop" {
 			onFull = audit.Drop
 		}
-		w, err := audit.NewWriter(audit.Options{Dir: cfg.Audit.Dir, Buffer: cfg.Audit.Buffer, OnFull: onFull}, log)
+		auditKey, err := kr.AuditKey()
+		if err != nil {
+			return nil, err
+		}
+		w, err := audit.NewWriter(
+			audit.Options{Dir: cfg.Audit.Dir, Key: auditKey, Buffer: cfg.Audit.Buffer, OnFull: onFull},
+			log,
+		)
+		clear(auditKey)
 		if err != nil {
 			return nil, fmt.Errorf("open audit log: %w", err)
 		}
@@ -97,6 +105,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
 		DisableCompression:    true,
 	}
+	for _, t := range cfg.Tenants {
+		if t.Mode == "observe" {
+			log.Warn("tenant in observe mode forwards raw personal data upstream", slog.String("tenant", t.ID))
+		}
+	}
+	if cfg.Server.DefaultTenant != "" {
+		log.Warn("default tenant accepts unauthenticated requests", slog.String("tenant", cfg.Server.DefaultTenant))
+	}
+	cfg.Keys.MasterKey = ""
+	a.cfg = cfg
 	a.api = httpapi.NewServer(
 		log,
 		metrics,
@@ -251,7 +269,7 @@ func (a *App) Run(ctx context.Context) error {
 
 func shutdown(ctx context.Context, s *http.Server) error {
 	if err := s.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown %s: %w", s.Addr, err)
+		return errors.Join(fmt.Errorf("shutdown %s: %w", s.Addr, err), s.Close())
 	}
 	return nil
 }
