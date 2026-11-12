@@ -1,0 +1,251 @@
+# maskwire
+
+> Reversible, streaming-safe PII pseudonymisation for LLM APIs, in a single Go binary.
+
+![CI](https://img.shields.io/github/actions/workflow/status/Guilherme-Ciano/maskwire/ci.yml?branch=main&style=flat-square&color=333333&label=ci&logo=githubactions&logoColor=white)
+![Go](https://img.shields.io/badge/go-1.27-333333?style=flat-square&logo=go&logoColor=white)
+![License](https://img.shields.io/badge/license-Apache--2.0-333333?style=flat-square)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/Guilherme-Ciano/maskwire?style=flat-square&color=333333&label=scorecard)](https://securityscorecards.dev/viewer/?uri=github.com/Guilherme-Ciano/maskwire)
+
+maskwire is a reverse proxy for the OpenAI Chat Completions and Anthropic Messages APIs. Before a request leaves
+your network it replaces e-mail addresses, phone numbers, IPs, IBANs, card numbers and checksum-valid national IDs
+(CPF, CNPJ, NIF, DNI/NIE, Steuer-ID, NIR, codice fiscale) with opaque tokens such as `[CPF_A0SA1Q]`. When the
+answer comes back, JSON or a server-sent event stream, it puts the original values back, even when a token is
+split across stream chunks.
+
+```text
+client sent    : ...reply to the customer at ana.souza@correio.pt about the refund, her CPF is 529.982.247-25...
+upstream saw   : ...reply to the customer at [EMAIL_FBDYD9] about the refund, her CPF is [CPF_A0SA1Q]...
+client got     : I received: ...reply to the customer at ana.souza@correio.pt about the refund, her CPF is 529.982.247-25...
+```
+
+That output comes from a real `docker compose up` run, recorded in [`docs/demo-output.txt`](docs/demo-output.txt).
+
+## Why
+
+- **Teams want LLMs on customer data, but every CPF, NIF and IBAN ends up in a provider's logs.** The usual fix
+  is a Python sidecar that redacts. Redaction cannot be undone, so the answer comes back full of placeholders.
+- **Restoring values in a stream is the hard part.** A token like `[EMAIL_FBDYD9]` can arrive as `[EMA` +
+  `IL_FB` + `DYD9]` in three separate SSE events. maskwire restores it with at most 32 bytes held back per stream,
+  and no timers on the hot path.
+- **Masking usually destroys caching.** maskwire derives tokens with HMAC-SHA256 from a per-tenant key, so the
+  same input always produces the same masked prompt, and semantic or prompt caches keep hitting.
+
+## What this is not
+
+maskwire is a technical measure, not a compliance product. Read this table before you put it in front of anything.
+
+| maskwire can honestly claim | maskwire does **not** claim |
+|---|---|
+| It pseudonymises (GDPR Art. 4(5)) the entity types it detects before they leave your network. | "GDPR compliant", "anonymised", or "no personal data reaches the LLM". Pseudonymised data is still personal data (GDPR Recital 26). |
+| Detection quality is what the tests and published evaluations show, per entity type. | "Detects all PII". Personal **names**, postal addresses, free-text health data and other quasi-identifiers are **not detected** in v0.1. |
+| It writes a tamper-evident, HMAC-chained request log with no raw personal data, which can support your own record keeping and log retention. | "EU AI Act compliance in a box", or a complete Art. 30 record. The log is one input to those, owned by you. |
+| Masked prompts lower what the provider receives. | That the provider receives no personal data, or that transfers outside the EU stop being transfers. |
+
+Further limits you should know about:
+
+- Tokens are stable per tenant. That is what keeps caches hitting, and it also means the provider can link a
+  person's requests over time. Rotating the tenant key changes every token.
+- If the same value appears in two formats in one request (`529.982.247-25` and `52998224725`), both get one token
+  and both are restored in the first format seen.
+- PII inside JSON **numbers** in tool arguments is masked by turning the number into a token string. A strict tool
+  schema may reject that.
+- Images, audio and files are not scanned. Base64 payloads pass through untouched.
+- A prompt-injected document can ask the model to write another value's token from the same request into a tool
+  call. maskwire restores any token issued for the request.
+- `observe` mode forwards the original body. Use it to measure before you enforce, never as protection.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    C(["Client app<br/>OpenAI / Anthropic SDK"]) -->|"raw request"| MW
+
+    subgraph MW ["maskwire :8090"]
+        direction TB
+        AUTH["tenant key<br/>(sha256, constant time)"]
+        WALK["JSON walker<br/>deny-by-default"]
+        DET["detector<br/>byte scanner + checksums"]
+        POL["policy<br/>mask / redact / block / allow / observe"]
+        TOK["HMAC tokens<br/>per tenant"]
+        RES["restorer<br/>bounded hold-back"]
+        AUD[("audit<br/>HMAC-chained JSONL")]
+        AUTH --> WALK --> DET --> POL --> TOK
+    end
+
+    TOK -->|"masked, deterministic"| SCG["semantic-cache-gateway"]
+    TOK -->|"masked"| P["LLM provider"]
+    SCG -->|"miss"| P
+    SCG -->|"hit: may carry another<br/>subject's tokens"| RES
+    P -->|"JSON or SSE"| RES
+    RES -->|"restored"| C
+    RES --> AUD
+```
+
+A streamed response goes through one restorer per channel (each choice's content, each tool call's arguments,
+each Anthropic content block):
+
+```mermaid
+sequenceDiagram
+    participant U as Provider
+    participant R as maskwire restorer
+    participant C as Client
+    U->>R: data: {"delta":{"content":"Write to [EMA"}}
+    R->>C: data: {"delta":{"content":"Write to "}}
+    Note over R: holds "[EMA" (could still become a token)
+    U->>R: data: {"delta":{"content":"IL_FBDYD9] today"}}
+    R->>C: data: {"delta":{"content":"ana.souza@correio.pt today"}}
+    U->>R: data: {"finish_reason":"stop"}
+    R->>C: flushes anything still held, then forwards finish
+```
+
+How the pieces work:
+
+- **Detection** is a single pass over the bytes, with no regular expressions on the hot path. Runs of digits and
+  capital letters joined by separators (including no-break spaces, zero-width characters, dashes, soft hyphens
+  and fullwidth digits) are compacted and checked against real checksums: CPF and CNPJ (including the new
+  alphanumeric CNPJ) mod 11, PT NIF, ES DNI/NIE letters, DE Steuer-ID ISO 7064, FR NIR mod 97 with Corsica,
+  IT codice fiscale with omocodia, IBAN mod 97 with the length table for 72 countries, and Luhn with IIN ranges for cards. Phone
+  numbers go through libphonenumber with a per-request budget.
+- **Tokens** are `[TYPE_SUFFIX]`, where the suffix is 6 Crockford base32 characters of
+  HMAC-SHA256(HKDF(master, tenant), type ‖ canonical value). On an in-request collision the suffix grows to 8, then 10.
+- **Restore** is a hand-written matcher that can answer "complete token", "not a token" or "could still become a
+  token". Only the last case holds bytes back, and a token is at most 26 bytes long, so the hold-back is bounded.
+  It accepts what models do to tokens: lower case, a space inside the brackets, Markdown escaping (`\[EMAIL\_…\]`).
+  Tests restore at every split point of a stream and check the result equals restoring the whole buffer.
+- **Foreign-token guard.** Only tokens issued for the current request are restored. Any other well-formed token,
+  for example one served by a semantic cache that answered with another customer's response, becomes `[email]`,
+  `[cpf]` and so on, and is counted in `maskwire_foreign_tokens_total`.
+- **Request walking is deny-by-default.** Every string leaf is masked except an explicit skip list: model, roles,
+  ids, tool names and JSON schemas, signed Anthropic thinking blocks and base64 payloads. JSON key names are
+  compared after decoding escapes.
+
+## Quickstart
+
+The demo builds [semantic-cache-gateway](https://github.com/Guilherme-Ciano/semantic-cache-gateway) from a sibling
+checkout, with three upstream bug fixes applied at image build time (see
+[`docs/semantic-cache-gateway.md`](docs/semantic-cache-gateway.md)). No API keys are needed: the upstream is
+`mockllm`, a Go mock that echoes the prompt it received, streams it back in 1-7 byte chunks, and serves embeddings.
+
+```bash
+git clone https://github.com/Guilherme-Ciano/semantic-cache-gateway.git
+git clone https://github.com/Guilherme-Ciano/maskwire.git
+cd maskwire
+docker compose up --build -d --wait
+make demo
+```
+
+| Service | Host port | Purpose |
+|---|---|---|
+| maskwire | 8090 (`MASKWIRE_PORT`) | proxy |
+| maskwire admin | 9091 (`MASKWIRE_ADMIN_PORT`) | `/metrics`, `/livez`, `/readyz` |
+| semantic-cache-gateway | 18080 (`SCG_PORT`) | cache, upstream of the default route |
+| mockllm | 19000 (`MOCKLLM_PORT`) | mock provider; `GET /last` shows what the upstream received |
+| prometheus | 9092 (`PROMETHEUS_PORT`) | scrapes maskwire |
+
+`make demo` runs six scenarios: a JSON request through the cache (MISS), the same prompt as a stream (cache HIT,
+replayed as SSE), a different customer with the same wording (the foreign-token guard), a direct streaming route,
+Anthropic streaming with a thinking block, and a blocked card number.
+
+One request by hand:
+
+```bash
+curl -sN localhost:8090/direct/v1/chat/completions \
+  -H 'X-Maskwire-Key: demo-key' -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-4.1-mini","stream":true,"messages":[{"role":"user","content":"Mail ana.souza@correio.pt, CPF 529.982.247-25"}]}'
+curl -s localhost:19000/last
+docker compose exec maskwire /usr/local/bin/maskwire audit verify --dir /var/lib/maskwire/audit
+```
+
+Point an existing SDK at maskwire by changing its base URL and adding the `X-Maskwire-Key` header. The client's
+own `Authorization` header is forwarded to the provider unchanged.
+
+Try the detector on its own:
+
+```bash
+echo "CPF 529.982.247-25, IBAN DE89 3704 0044 0532 0130 00" | go run ./cmd/maskwire detect
+```
+
+## Configuration
+
+YAML file (`--config` or `MASKWIRE_CONFIG`) overlaid by environment variables: `MASKWIRE_SECTION__KEY`, for
+example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.yaml).
+
+| Key | Default | Description |
+|---|---|---|
+| `server.addr` | `:8090` | proxy listener |
+| `server.admin_addr` | `127.0.0.1:9090` | metrics and health listener |
+| `server.tenant_header` | `X-Maskwire-Key` | header carrying the tenant API key (stripped before forwarding) |
+| `server.default_tenant` | empty | tenant used when the header is missing; leave empty in production |
+| `server.max_body_bytes` | `4194304` | request body limit |
+| `server.upstream_timeout` | `60s` | time to response headers before a 504 |
+| `server.stream_idle_timeout` | `60s` | longest wait for upstream bytes in a stream before it is cut |
+| `keys.master_key` / `keys.master_key_file` | none | 32+ byte hex key; the file must not be readable by other users. Use `MASKWIRE_KEYS__MASTER_KEY` or a secret file |
+| `keys.version` | `1` | changing it rotates every tenant's tokens |
+| `audit.enabled` / `audit.dir` | `true` / `audit` | HMAC-chained JSONL per tenant and UTC day |
+| `audit.on_full` | `block` | `block` waits for the writer; `drop` counts and drops |
+| `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
+| `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that 9+ digit runs are masked unvalidated |
+| `routes[]` | | `name`, `path`, `upstream`, `codec` (`openai`, `anthropic`), `synthesize_stream` |
+| `tenants[]` | | `id`, `key_sha256` (`maskwire hash-key`), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`) |
+
+An upstream URL with a path is used as is; without a path, the incoming path is appended.
+
+Entity types for `by_type`: `EMAIL`, `PHONE`, `IP`, `IP_PRIVATE` (allowed by default), `CPF`, `CNPJ`, `PT_NIF`,
+`ES_DNI`, `ES_NIE`, `DE_STEUER_ID` (needs a keyword such as "Steuer-ID" nearby), `FR_NIR`, `IT_CF`, `IBAN`,
+`CREDIT_CARD`. Blocked types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
+
+## Audit log
+
+Each request writes one JSON line with the tenant, route, model, counts per entity type and action, restore and
+foreign-token counts, latency, and SHA-256 digests of the masked request and response. It holds no raw values
+and no tokens. Lines are chained with HMAC-SHA256 under a key derived from the master key, so someone who can edit
+the files but does not hold the key cannot rewrite the chain. Each day file opens with a record that links to the
+previous day's chain, so a deleted or truncated earlier day is detected.
+
+```bash
+maskwire audit verify --dir audit --config maskwire.yaml
+```
+
+`verify` prints each file's head hash. Truncating the newest day, or deleting it entirely, can only be detected
+against a head you stored elsewhere, so ship those heads to separate storage if that matters to you.
+
+## Benchmarks
+
+<!-- bench:start -->
+Benchmarks are being recorded.
+<!-- bench:end -->
+
+## Development
+
+```bash
+make lint test build   # golangci-lint v2, comment check, go test -race
+make fuzz FUZZTIME=30s # restore split, matcher, detector, mask round trip, request walker, SSE, JSON splicer
+make bench             # micro-benchmarks into bench/results/raw
+make load              # vegeta load test against real processes (needs make build)
+```
+
+The Go code has no comments; `go run ./internal/tools/nocomments` enforces it in CI. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+## Verify a release
+
+```bash
+cosign verify ghcr.io/guilherme-ciano/maskwire:<version> \
+  --certificate-identity-regexp 'https://github.com/Guilherme-Ciano/maskwire/.github/workflows/release.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+## Roadmap
+
+- [x] v0.1: OpenAI and Anthropic codecs (JSON and SSE), checksum validators, HMAC tokens, streaming restore,
+      policies, foreign-token guard, HMAC-chained audit, Prometheus metrics, mock upstream, compose demo
+- [ ] v0.2: full incremental JSON lexer for tool-argument deltas, response scanning in observe mode, Redis vault
+      with AES-GCM for multi-turn sessions, Ed25519-signed audit checkpoints
+- [ ] v0.3: names via gazetteers and heuristics, published precision and recall per type and language
+- [ ] v0.4: optional ONNX NER behind a build tag, with a per-request time budget
+- [ ] Namespace isolation in semantic-cache-gateway ([details](docs/semantic-cache-gateway.md))
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
