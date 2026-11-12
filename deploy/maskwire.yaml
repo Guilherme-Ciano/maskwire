@@ -1,0 +1,40 @@
+server:
+  addr: ":8090"
+  admin_addr: ":9090"
+  shutdown_drain_delay: 1s
+keys:
+  master_key_file: /etc/maskwire/master.key
+  version: 1
+audit:
+  enabled: true
+  dir: /var/lib/maskwire/audit
+  on_full: block
+log:
+  level: info
+  format: json
+routes:
+  - name: openai-via-cache
+    path: /v1/chat/completions
+    upstream: http://scg:8080
+    codec: openai
+    synthesize_stream: true
+  - name: openai-direct
+    path: /direct/v1/chat/completions
+    upstream: http://mockllm:9000/v1/chat/completions
+    codec: openai
+  - name: anthropic-direct
+    path: /v1/messages
+    upstream: http://mockllm:9000
+    codec: anthropic
+tenants:
+  - id: demo
+    key_sha256: c48a01f49fd0f2cc404bc3cbbc80e91457a3d41bb429a695243de4c61794155c
+    mode: enforce
+    default: mask
+    foreign_token: generic
+    by_type:
+      CREDIT_CARD:
+        action: block
+  - id: globex
+    key_sha256: f2a455b59b858a04c51108416af2042203cb6ac35fa4141fba4148bc856e78d4
+    mode: observe
