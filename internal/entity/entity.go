@@ -1,0 +1,225 @@
+package entity
+
+type Type uint8
+
+const (
+	Unknown Type = iota
+	Email
+	Phone
+	IP
+	IPPrivate
+	CPF
+	CNPJ
+	PTNIF
+	ESDNI
+	ESNIE
+	DESteuerID
+	FRNIR
+	ITCF
+	IBAN
+	CreditCard
+	typeCount
+)
+
+const unknownName = "UNKNOWN"
+
+const (
+	MaxNameLen  = 12
+	MaxLabelLen = 8
+)
+
+func (t Type) Label() string {
+	switch t {
+	case Email:
+		return "EMAIL"
+	case Phone:
+		return "PHONE"
+	case IP, IPPrivate:
+		return "IP"
+	case CPF:
+		return "CPF"
+	case CNPJ:
+		return "CNPJ"
+	case PTNIF:
+		return "NIF"
+	case ESDNI:
+		return "DNI"
+	case ESNIE:
+		return "NIE"
+	case DESteuerID:
+		return "STEUERID"
+	case FRNIR:
+		return "NIR"
+	case ITCF:
+		return "CF"
+	case IBAN:
+		return "IBAN"
+	case CreditCard:
+		return "CARD"
+	case Unknown, typeCount:
+		return unknownName
+	}
+	return unknownName
+}
+
+func (t Type) LabelLower() string {
+	switch t {
+	case Email:
+		return "email"
+	case Phone:
+		return "phone"
+	case IP, IPPrivate:
+		return "ip"
+	case CPF:
+		return "cpf"
+	case CNPJ:
+		return "cnpj"
+	case PTNIF:
+		return "nif"
+	case ESDNI:
+		return "dni"
+	case ESNIE:
+		return "nie"
+	case DESteuerID:
+		return "steuerid"
+	case FRNIR:
+		return "nir"
+	case ITCF:
+		return "cf"
+	case IBAN:
+		return "iban"
+	case CreditCard:
+		return "card"
+	case Unknown, typeCount:
+		return "unknown"
+	}
+	return "unknown"
+}
+
+func LabelFold(b []byte) (Type, bool) {
+	if len(b) == 0 || len(b) > MaxLabelLen {
+		return Unknown, false
+	}
+	var up [MaxLabelLen]byte
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		up[i] = c
+	}
+	for t := Unknown + 1; t < typeCount; t++ {
+		if t != IPPrivate && t.Label() == string(up[:len(b)]) {
+			return t, true
+		}
+	}
+	return Unknown, false
+}
+
+const Count = int(typeCount)
+
+func (t Type) String() string {
+	switch t {
+	case Email:
+		return "EMAIL"
+	case Phone:
+		return "PHONE"
+	case IP:
+		return "IP"
+	case IPPrivate:
+		return "IP_PRIVATE"
+	case CPF:
+		return "CPF"
+	case CNPJ:
+		return "CNPJ"
+	case PTNIF:
+		return "PT_NIF"
+	case ESDNI:
+		return "ES_DNI"
+	case ESNIE:
+		return "ES_NIE"
+	case DESteuerID:
+		return "DE_STEUER_ID"
+	case FRNIR:
+		return "FR_NIR"
+	case ITCF:
+		return "IT_CF"
+	case IBAN:
+		return "IBAN"
+	case CreditCard:
+		return "CREDIT_CARD"
+	case Unknown, typeCount:
+		return unknownName
+	}
+	return unknownName
+}
+
+func (t Type) Valid() bool {
+	return t > Unknown && t < typeCount
+}
+
+func All() []Type {
+	out := make([]Type, 0, typeCount-1)
+	for t := Unknown + 1; t < typeCount; t++ {
+		out = append(out, t)
+	}
+	return out
+}
+
+func Parse(s string) (Type, bool) {
+	for t := Unknown + 1; t < typeCount; t++ {
+		if t.String() == s {
+			return t, true
+		}
+	}
+	return Unknown, false
+}
+
+func ParseFold(b []byte) (Type, bool) {
+	if len(b) == 0 || len(b) > MaxNameLen {
+		return Unknown, false
+	}
+	var up [MaxNameLen]byte
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		up[i] = c
+	}
+	for t := Unknown + 1; t < typeCount; t++ {
+		if t.String() == string(up[:len(b)]) {
+			return t, true
+		}
+	}
+	return Unknown, false
+}
+
+type Span struct {
+	Start int
+	End   int
+	Type  Type
+	Score float32
+}
+
+func (s Span) Len() int {
+	return s.End - s.Start
+}
+
+func (s Span) Overlaps(o Span) bool {
+	return s.Start < o.End && o.Start < s.End
+}
+
+func Priority(t Type) int {
+	switch t {
+	case CPF, CNPJ, PTNIF, ESDNI, ESNIE, FRNIR, ITCF, IBAN, CreditCard:
+		return 4
+	case Email:
+		return 3
+	case DESteuerID, IP, IPPrivate:
+		return 2
+	case Phone:
+		return 1
+	case Unknown, typeCount:
+		return 0
+	}
+	return 0
+}
