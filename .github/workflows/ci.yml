@@ -1,0 +1,67 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with: { egress-policy: audit }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, check-latest: true }
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with: { version: v2.15.0 }
+      - run: go run ./internal/tools/nocomments
+      - run: go mod tidy -diff
+      - run: go tool -modfile=tools/go.mod govulncheck ./...
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, check-latest: true }
+      - run: go test -race -shuffle=on -count=1 -covermode=atomic -coverprofile=cover.out ./...
+      - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: coverage, path: cover.out }
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: ./internal/restore, fn: FuzzRestoreSplit }
+          - { pkg: ./internal/restore, fn: FuzzMatcher }
+          - { pkg: ./internal/detect, fn: FuzzDetect }
+          - { pkg: ./internal/mask, fn: FuzzMaskRoundTrip }
+          - { pkg: ./internal/codec/openai, fn: FuzzMaskRequest }
+          - { pkg: ./internal/sse, fn: FuzzReader }
+          - { pkg: ./internal/jsonx, fn: FuzzRewriteIdentity }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod }
+      - run: go test -run='^$' -fuzz='^${{ matrix.target.fn }}$' -fuzztime=45s ${{ matrix.target.pkg }}
+  bench-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod }
+      - run: go test -run='^$' -bench=. -benchmem -benchtime=200ms ./internal/... | tee -a "$GITHUB_STEP_SUMMARY"
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - run: docker buildx build --platform linux/amd64,linux/arm64 --target maskwire .
+      - run: docker buildx build --platform linux/amd64,linux/arm64 --target mockllm .

@@ -1,0 +1,7 @@
+FROM gcr.io/distroless/static-debian13:nonroot
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/maskwire /usr/local/bin/maskwire
+USER 65532:65532
+EXPOSE 8090 9090
+ENTRYPOINT ["/usr/local/bin/maskwire"]
+CMD ["serve"]
