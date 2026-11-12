@@ -1,0 +1,8 @@
+.git
+bin
+dist
+audit
+bench/results
+deploy/secrets
+*.test
+*.out
