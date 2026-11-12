@@ -1,0 +1,2 @@
+ok	/var/lib/maskwire/audit/demo/2026-11-12.jsonl	head=sha256:6849954ab34d5fd8f952e2ba6aa1b77d8ec98177d5977c0c0f3c3ac0cea46ebf
+verified 1 files, 7 records

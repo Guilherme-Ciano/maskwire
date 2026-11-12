@@ -1,11 +1,13 @@
+ARG BUILDPLATFORM=linux/amd64
 FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN go mod download
 COPY . .
-ARG TARGETOS TARGETARCH VERSION=dev
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/maskwire ./cmd/maskwire && \
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/maskwire ./cmd/maskwire && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/mockllm ./cmd/mockllm && \
     mkdir -p /out/audit
 
