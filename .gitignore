@@ -1,0 +1,10 @@
+/bin/
+/dist/
+/audit/
+*.test
+*.out
+cover.html
+bench/results/profiles/
+bench/results/raw/*.prof
+deploy/secrets/
+.env
