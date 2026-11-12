@@ -9,8 +9,8 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
 )
 
-func responseTarget(path []jsonx.Frame) (restore.Encoding, bool) {
-	if len(path) < 4 || !path[0].Is("choices") || !path[2].Is("message") {
+func responseTarget(path []jsonx.Frame, raw []byte) (restore.Encoding, bool) {
+	if !jsonx.IsString(raw) || len(path) < 4 || !path[0].Is("choices") || !path[2].Is("message") {
 		return restore.Raw, false
 	}
 	switch {
@@ -26,7 +26,7 @@ func (c *Codec) RestoreBody(dst, body []byte, set restore.Set, o restore.Options
 	var stats restore.Stats
 	var scratch, restored []byte
 	out, err := c.rw.Rewrite(dst, body, func(dst []byte, path []jsonx.Frame, raw []byte) ([]byte, bool, error) {
-		enc, ok := responseTarget(path)
+		enc, ok := responseTarget(path, raw)
 		if !ok {
 			return dst, false, nil
 		}

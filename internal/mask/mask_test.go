@@ -97,6 +97,14 @@ func TestDeterminismAndTenantSeparation(t *testing.T) {
 	}
 	canonA := mustMask(t, eng.NewSession(a), "CPF 52998224725")
 	canonB := mustMask(t, eng.NewSession(a), "CPF 529.982.247-25")
+	canonC := mustMask(
+		t,
+		eng.NewSession(a),
+		"CPF \uff15\uff12\uff19.\uff19\uff18\uff12.\uff12\uff14\uff17-\uff12\uff15",
+	)
+	if !bytes.Equal(canonA, canonC) {
+		t.Fatalf("fullwidth digits must canonicalise like ASCII: %s vs %s", canonA, canonC)
+	}
 	if !bytes.Equal(canonA, canonB) {
 		t.Fatalf("canonical forms differ: %s vs %s", canonA, canonB)
 	}
@@ -178,7 +186,7 @@ func TestMaskJSONStrings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "ana@") || !strings.Contains(string(out), `"n":52998224725`) ||
+	if strings.Contains(string(out), "ana@") || !strings.Contains(string(out), `"n":"[CPF_`) ||
 		strings.Contains(string(out), "cpf 5299") {
 		t.Fatalf("unexpected %s", out)
 	}

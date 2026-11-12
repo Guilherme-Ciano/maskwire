@@ -34,7 +34,8 @@ func (e *BlockedError) Error() string {
 }
 
 type SpanDetector interface {
-	Detect(dst []entity.Span, text []byte) []entity.Span
+	DetectBudget(dst []entity.Span, text []byte, phoneBudget *int) []entity.Span
+	PhoneBudget() int
 }
 
 type Tenant struct {
@@ -100,6 +101,7 @@ type Session struct {
 	blocked  [entity.Count]bool
 	counters Counters
 	variants int
+	budget   int
 }
 
 func (s *Session) SurfaceVariants() int {
@@ -112,6 +114,7 @@ func (e *Engine) NewSession(t *Tenant) *Session {
 		tenant:  t,
 		observe: t.Policy.Mode == policy.Observe,
 		set:     make(map[Suffix]int),
+		budget:  e.det.PhoneBudget(),
 	}
 }
 
@@ -141,9 +144,12 @@ func (s *Session) Err() error {
 }
 
 func (s *Session) MaskText(dst, src []byte) ([]byte, error) {
-	s.spans = s.eng.det.Detect(s.spans[:0], src)
+	s.spans = s.eng.det.DetectBudget(s.spans[:0], src, &s.budget)
 	last := 0
 	for _, sp := range s.spans {
+		if sp.Start < last || sp.End > len(src) {
+			continue
+		}
 		action := s.tenant.Policy.Decide(sp.Type, sp.Score)
 		s.counters.Detected[sp.Type]++
 		s.counters.Actions[sp.Type][action]++
@@ -226,7 +232,26 @@ func (s *Session) MaskJSONStrings(dst, doc []byte) ([]byte, error) {
 }
 
 func (s *Session) maskStringLeaf(dst []byte, _ []jsonx.Frame, raw []byte) (out []byte, changed bool, err error) {
-	return s.MaskQuoted(dst, raw)
+	return s.MaskLeaf(dst, raw)
+}
+
+func (s *Session) MaskLeaf(dst, raw []byte) (out []byte, changed bool, err error) {
+	if jsonx.IsString(raw) {
+		return s.MaskQuoted(dst, raw)
+	}
+	mark := len(s.scratch)
+	s.scratch, err = s.MaskText(s.scratch, raw)
+	if err != nil {
+		return dst, false, err
+	}
+	masked := s.scratch[mark:]
+	if bytes.Equal(masked, raw) {
+		s.scratch = s.scratch[:mark]
+		return dst, false, nil
+	}
+	dst = jsonx.Quote(dst, masked)
+	s.scratch = s.scratch[:mark]
+	return dst, true, nil
 }
 
 func (s *Session) MaskQuoted(dst, raw []byte) (out []byte, changed bool, err error) {

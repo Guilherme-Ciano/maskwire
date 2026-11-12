@@ -37,40 +37,73 @@ const (
 	kindJSON = "json"
 )
 
-func skipKey(f jsonx.Frame) bool {
-	return f.Is("type") || f.Is("image_url") || f.Is("input_audio") || f.Is("file") || f.Is("detail") || f.Is("format")
+func skipTop(name []byte) bool {
+	switch string(name) {
+	case "model", "response_format", "tool_choice", "parallel_tool_calls", "reasoning_effort", "service_tier",
+		"modalities", "logit_bias", "stream_options", "audio", "function_call", "verbosity":
+		return true
+	}
+	return false
 }
 
-func requestTarget(path []jsonx.Frame) (string, bool) {
-	if len(path) == 1 && path[0].Is("user") {
-		return kindText, true
+func skipLeaf(name []byte) bool {
+	switch string(name) {
+	case "role",
+		"type",
+		"id",
+		"tool_call_id",
+		"detail",
+		"format",
+		"voice",
+		"media_type",
+		"file_id",
+		"file_data",
+		"data":
+		return true
 	}
-	if len(path) < 3 || !path[0].Is("messages") || !path[1].Array {
+	return false
+}
+
+func toolSchema(path []jsonx.Frame) bool {
+	if len(path) < 2 || (!path[0].Is("tools") && !path[0].Is("functions")) {
+		return false
+	}
+	return jsonx.Under(path, "parameters") || path[len(path)-1].Is("name")
+}
+
+func argumentsLeaf(path []jsonx.Frame) bool {
+	n := len(path)
+	return n >= 3 && path[0].Is("messages") && path[n-1].Is("arguments") && path[n-2].Is("function") ||
+		n >= 3 && path[0].Is("messages") && path[n-1].Is("arguments") && path[n-2].Is("function_call")
+}
+
+func functionName(path []jsonx.Frame) bool {
+	n := len(path)
+	return n >= 2 && path[n-1].Is("name") && (path[n-2].Is("function") || path[n-2].Is("function_call"))
+}
+
+func requestTarget(path []jsonx.Frame, raw []byte) (string, bool) {
+	if len(path) == 0 || !jsonx.IsString(raw) {
 		return "", false
 	}
-	field := path[2]
+	leaf := path[len(path)-1]
 	switch {
-	case field.Is("content"):
-		for _, f := range path[3:] {
-			if !f.Array && skipKey(f) {
-				return "", false
-			}
-		}
-		return kindText, true
-	case field.Is("name"):
-		return "text", len(path) == 3
-	case field.Is("tool_calls"):
-		if len(path) == 6 && path[4].Is("function") && path[5].Is("arguments") {
-			return kindJSON, true
-		}
+	case skipTop(path[0].Name), toolSchema(path), functionName(path), jsonx.LooksBase64(raw):
+		return "", false
+	case !leaf.Array && skipLeaf(leaf.Name):
+		return "", false
+	case leaf.Is("url") && jsonx.HasPrefix(raw, "data:"):
+		return "", false
+	case argumentsLeaf(path):
+		return kindJSON, true
 	}
-	return "", false
+	return kindText, true
 }
 
 func (c *Codec) MaskRequest(dst, body []byte, m Masker) ([]byte, error) {
 	var scratch, inner []byte
 	out, err := c.rw.Rewrite(dst, body, func(dst []byte, path []jsonx.Frame, raw []byte) ([]byte, bool, error) {
-		kind, ok := requestTarget(path)
+		kind, ok := requestTarget(path, raw)
 		if !ok {
 			return dst, false, nil
 		}

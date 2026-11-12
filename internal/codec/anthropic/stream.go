@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
@@ -58,30 +57,27 @@ type StreamBody struct {
 	scratch  []byte
 	done     bool
 	err      error
-	idle     time.Duration
-	timer    *time.Timer
+	idle     *codec.IdleReader
 	events   int
 	dropped  int
 	onClose  func(restore.Stats, int, int)
+	retired  restore.Stats
 }
 
 func NewStreamBody(src io.ReadCloser, set restore.Set, o codec.StreamOptions) *StreamBody {
-	b := &StreamBody{
+	idle := codec.WatchIdle(src, o.Idle, o.OnStall)
+	return &StreamBody{
 		src:     src,
-		rd:      sse.NewReader(src, o.MaxEvent),
+		rd:      sse.NewReader(idle, o.MaxEvent),
 		set:     set,
 		opts:    o.Restore,
-		idle:    o.Idle,
+		idle:    idle,
 		onClose: o.OnClose,
 	}
-	if o.Idle > 0 && o.OnStall != nil {
-		b.timer = time.AfterFunc(o.Idle, o.OnStall)
-	}
-	return b
 }
 
 func (b *StreamBody) Stats() restore.Stats {
-	var s restore.Stats
+	s := b.retired
 	for i := range b.channels {
 		s.Add(b.channels[i].stream.Stats())
 	}
@@ -102,9 +98,7 @@ func (b *StreamBody) Read(p []byte) (int, error) {
 }
 
 func (b *StreamBody) Close() error {
-	if b.timer != nil {
-		b.timer.Stop()
-	}
+	b.idle.Stop()
 	err := b.src.Close()
 	if b.onClose != nil {
 		b.onClose(b.Stats(), b.events, b.dropped)
@@ -118,9 +112,7 @@ func (b *StreamBody) Close() error {
 
 func (b *StreamBody) finish(err error) {
 	b.done, b.err = true, err
-	if b.timer != nil {
-		b.timer.Stop()
-	}
+	b.idle.Stop()
 }
 
 func (b *StreamBody) find(index int) *channel {
@@ -134,9 +126,6 @@ func (b *StreamBody) find(index int) *channel {
 
 func (b *StreamBody) step() {
 	ev, err := b.rd.Next()
-	if b.timer != nil {
-		b.timer.Reset(b.idle)
-	}
 	if errors.Is(err, io.EOF) {
 		for i := range b.channels {
 			b.out = b.flush(b.out, &b.channels[i])
@@ -204,17 +193,19 @@ func (b *StreamBody) start(env *envelope) error {
 			kind = kindJSON
 		}
 	}
-	if c := b.find(env.Index); c != nil {
-		c.kind = kind
-		return nil
-	}
-	if len(b.channels) >= codec.MaxChannels {
-		return codec.ErrTooManyChannels
-	}
 	o := b.opts
 	o.Encoding = restore.Raw
 	if kind == kindJSON {
 		o.Encoding = restore.JSONString
+	}
+	if c := b.find(env.Index); c != nil {
+		b.out = b.flush(b.out, c)
+		b.retired.Add(c.stream.Stats())
+		c.kind, c.stream = kind, restore.NewStream(b.set, o)
+		return nil
+	}
+	if len(b.channels) >= codec.MaxChannels {
+		return codec.ErrTooManyChannels
 	}
 	b.channels = append(b.channels, channel{index: env.Index, kind: kind, stream: restore.NewStream(b.set, o)})
 	return nil
@@ -233,6 +224,7 @@ func (b *StreamBody) delta(env *envelope) (data []byte, keep bool, err error) {
 		field = env.Delta.PartialJSON
 	}
 	if field == nil {
+		b.out = b.flush(b.out, c)
 		return nil, true, nil
 	}
 	b.scratch = c.stream.Feed(b.scratch[:0], []byte(*field))

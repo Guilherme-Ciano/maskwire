@@ -2,12 +2,16 @@ package app
 
 import (
 	"bufio"
+	"context"
+	"encoding/hex"
 	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +19,7 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/audit"
 	"github.com/Guilherme-Ciano/maskwire/internal/config"
 	"github.com/Guilherme-Ciano/maskwire/internal/mockllm"
+	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
 const (
@@ -344,12 +349,133 @@ func TestAuditChainAfterTraffic(t *testing.T) {
 	for h.app.auditor.Written() < 3 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	rep, err := audit.VerifyDir(h.cfg.Audit.Dir)
+	rep, err := audit.VerifyDir(h.cfg.Audit.Dir, h.sealer())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Records < 3 || rep.Files != 1 {
+	if rep.Records < 4 || rep.Files != 1 {
 		t.Fatalf("report %+v", rep)
+	}
+}
+
+func (h *harness) sealer() *audit.Sealer {
+	h.t.Helper()
+	master, err := hex.DecodeString(strings.Repeat("ab", 32))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	kr, err := token.NewKeyring(master, 1)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	key, err := kr.AuditKey()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return audit.NewSealer(key)
+}
+
+func (h *harness) waitAudit(n uint64) {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.app.auditor.Written() < n && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if h.app.auditor.Written() < n {
+		h.t.Fatalf("audit wrote %d records, want %d", h.app.auditor.Written(), n)
+	}
+}
+
+func (h *harness) auditLog() string {
+	h.t.Helper()
+	files, err := filepath.Glob(filepath.Join(h.cfg.Audit.Dir, "*", "*.jsonl"))
+	if err != nil || len(files) == 0 {
+		h.t.Fatalf("no audit files: %v", err)
+	}
+	b, err := os.ReadFile(files[0])
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestClientAbortMidStreamIsAudited(t *testing.T) {
+	t.Parallel()
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		rc := http.NewResponseController(w)
+		for i := 0; r.Context().Err() == nil && i < 500; i++ {
+			if _, err := io.WriteString(
+				w,
+				`data: {"choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}`+"\n\n",
+			); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}))
+	defer slow.Close()
+	h := newHarness(t, func(c *config.Config) {
+		c.Routes = append(
+			c.Routes,
+			config.Route{Name: "slow", Path: "/slow" + chatPath, Upstream: slow.URL + chatPath, Codec: "openai"},
+		)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		h.proxy.URL+"/slow"+chatPath,
+		strings.NewReader(chatBody(t, true)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(keyHeader, tenantKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64)
+	if _, err := resp.Body.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	_ = resp.Body.Close()
+	h.waitAudit(1)
+	if !strings.Contains(h.auditLog(), `"status":499`) {
+		t.Fatalf("aborted stream not audited as 499: %s", h.auditLog())
+	}
+}
+
+func TestUpstreamHeaderTimeoutIs504(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer hang.Close()
+	defer close(release)
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.UpstreamTimeout = 100 * time.Millisecond
+		c.Routes = append(
+			c.Routes,
+			config.Route{Name: "hang", Path: "/hang" + chatPath, Upstream: hang.URL + chatPath, Codec: "openai"},
+		)
+	})
+	r := h.post("/hang"+chatPath, chatBody(t, false), nil)
+	if r.status != http.StatusGatewayTimeout {
+		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+	h.waitAudit(1)
+	if !strings.Contains(h.auditLog(), `"status":504`) {
+		t.Fatal("timeout not audited")
 	}
 }
 

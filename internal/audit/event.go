@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -150,26 +151,57 @@ func (e *Event) appendBody(dst []byte) []byte {
 	return dst
 }
 
-func Genesis(tenant, day string) [32]byte {
-	return sha256.Sum256([]byte("maskwire-audit-v1|" + tenant + "|" + day))
+type Sealer struct {
+	key []byte
 }
 
-func seal(dst []byte, prev *[32]byte) (line []byte, digest [32]byte) {
+func NewSealer(key []byte) *Sealer {
+	return &Sealer{key: append([]byte(nil), key...)}
+}
+
+func (s *Sealer) sum(b []byte) [32]byte {
+	m := hmac.New(sha256.New, s.key)
+	m.Write(b)
+	var out [32]byte
+	m.Sum(out[:0])
+	return out
+}
+
+func (s *Sealer) Genesis(tenant, day string) [32]byte {
+	return s.sum([]byte("maskwire-audit-v1|genesis|" + tenant + "|" + day))
+}
+
+func (s *Sealer) seal(dst []byte, prev *[32]byte) (line []byte, digest [32]byte) {
 	dst = appendKV(dst, "prev")
 	dst = appendDigest(dst, prev)
-	sum := sha256.Sum256(dst)
+	sum := s.sum(dst)
 	dst = appendKV(dst, "hash")
 	dst = appendDigest(dst, &sum)
 	return append(dst, '}', '\n'), sum
 }
 
-func recoveryBody(dst []byte, ts time.Time, torn int) []byte {
+func headerBody(dst []byte, kind string, ts time.Time) []byte {
 	dst = append(dst, `{"v":`...)
 	dst = strconv.AppendInt(dst, Version, 10)
 	dst = appendKV(dst, "type")
-	dst = append(dst, `"recovery"`...)
+	dst = jsonx.Quote(dst, []byte(kind))
 	dst = appendKV(dst, "ts")
-	dst = jsonx.Quote(dst, ts.UTC().AppendFormat(nil, time.RFC3339Nano))
+	return jsonx.Quote(dst, ts.UTC().AppendFormat(nil, time.RFC3339Nano))
+}
+
+func recoveryBody(dst []byte, ts time.Time, torn int) []byte {
+	dst = headerBody(dst, "recovery", ts)
 	dst = appendKV(dst, "torn_bytes")
 	return strconv.AppendInt(dst, int64(torn), 10)
+}
+
+func openBody(dst []byte, ts time.Time, prevDay string, prevHead *[32]byte) []byte {
+	dst = headerBody(dst, "open", ts)
+	dst = appendKV(dst, "prev_day")
+	dst = jsonx.Quote(dst, []byte(prevDay))
+	dst = appendKV(dst, "prev_day_head")
+	if prevHead == nil {
+		return append(dst, "null"...)
+	}
+	return appendDigest(dst, prevHead)
 }

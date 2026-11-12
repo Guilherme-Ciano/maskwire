@@ -8,9 +8,9 @@ services:
     image: maskwire:dev
     environment:
       MASKWIRE_CONFIG: /etc/maskwire/maskwire.yaml
+      MASKWIRE_KEYS__MASTER_KEY: fef77acd0ca38774fb10a35370957851f6241697aa0ca8f174c33b1152314c2a
     volumes:
       - ./deploy/maskwire.yaml:/etc/maskwire/maskwire.yaml:ro
-      - ./deploy/demo/master.key:/etc/maskwire/master.key:ro
       - audit:/var/lib/maskwire/audit
     ports:
       - "8090:8090"

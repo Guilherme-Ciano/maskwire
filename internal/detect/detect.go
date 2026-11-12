@@ -66,11 +66,21 @@ type scanner struct {
 	v6End  int
 }
 
+func (d *Detector) PhoneBudget() int {
+	return d.phoneBudget
+}
+
 func (d *Detector) Detect(dst []entity.Span, text []byte) []entity.Span {
-	s := scanner{d: d, text: text, out: dst[:0], budget: d.phoneBudget}
+	budget := d.phoneBudget
+	return d.DetectBudget(dst, text, &budget)
+}
+
+func (d *Detector) DetectBudget(dst []entity.Span, text []byte, budget *int) []entity.Span {
+	s := scanner{d: d, text: text, out: dst[:0], budget: *budget}
 	s.emails()
 	s.words()
 	s.flushRun()
+	*budget = s.budget
 	return resolve(s.out)
 }
 
@@ -100,20 +110,56 @@ func sepLen(b []byte, i int) int {
 	case ' ', '.', '-', '/', '(', ')':
 		return 1
 	case 0xC2:
-		if i+1 < len(b) && b[i+1] == 0xA0 {
+		if i+1 < len(b) && (b[i+1] == 0xA0 || b[i+1] == 0xAD) {
 			return 2
 		}
-	case 0xE2:
-		if i+2 < len(b) {
-			switch {
-			case b[i+1] == 0x80 && (b[i+2] == 0x89 || b[i+2] == 0x8B || b[i+2] == 0x8C || b[i+2] == 0x8D || b[i+2] == 0xAF):
-				return 3
-			case b[i+1] == 0x81 && b[i+2] == 0xA0:
-				return 3
-			}
+	case 0xE2, 0xE3, 0xEF:
+		if i+2 < len(b) && wideSep(c, b[i+1], b[i+2]) {
+			return 3
 		}
 	}
 	return 0
+}
+
+func wideSep(c0, c1, c2 byte) bool {
+	switch {
+	case c0 == 0xE2 && c1 == 0x80:
+		return c2 == 0x89 || (c2 >= 0x8B && c2 <= 0x95) || c2 == 0xAF
+	case c0 == 0xE2 && c1 == 0x81:
+		return c2 == 0xA0
+	case c0 == 0xE2 && c1 == 0x88:
+		return c2 == 0x92
+	case c0 == 0xE3:
+		return c1 == 0x80 && c2 == 0x80
+	case c0 == 0xEF:
+		return c1 == 0xBB && c2 == 0xBF
+	}
+	return false
+}
+
+func wideDigit(b []byte, i int) (byte, bool) {
+	if i+2 < len(b) && b[i] == 0xEF && b[i+1] == 0xBC && b[i+2] >= 0x90 && b[i+2] <= 0x99 {
+		return '0' + b[i+2] - 0x90, true
+	}
+	return 0, false
+}
+
+func appendFolded(buf []byte, k int, src []byte) int {
+	for i := 0; i < len(src); i++ {
+		if k >= len(buf) {
+			return -1
+		}
+		c := src[i]
+		if d, ok := wideDigit(src, i); ok {
+			c = d
+			i += 2
+		} else if isLower(c) {
+			c -= 'a' - 'A'
+		}
+		buf[k] = c
+		k++
+	}
+	return k
 }
 
 func (s *scanner) words() {
@@ -145,26 +191,39 @@ func (s *scanner) words() {
 func (s *scanner) word(i int) (g group, clean bool) {
 	t := s.text
 	g.start = i
-	clean = true
+	lowers, bad := 0, false
 	j := i
-	for ; j < len(t); j++ {
+	for j < len(t) {
 		c := t[j]
 		switch {
 		case isDigit(c):
 			g.digits++
 		case isUpper(c):
 			g.letters++
-		case isLower(c), c == '_':
-			clean = false
-		case c >= 0x80 && sepLen(t, j) == 0:
-			clean = false
+		case isLower(c):
+			g.letters++
+			lowers++
+		case c == '_':
+			bad = true
+		case c >= 0x80:
+			if _, ok := wideDigit(t, j); ok {
+				g.digits++
+				j += 3
+				continue
+			}
+			if sepLen(t, j) > 0 {
+				g.end = j
+				return g, !bad && (g.digits > 0 || lowers == 0)
+			}
+			bad = true
 		default:
 			g.end = j
-			return g, clean
+			return g, !bad && (g.digits > 0 || lowers == 0)
 		}
+		j++
 	}
 	g.end = j
-	return g, clean
+	return g, !bad && (g.digits > 0 || lowers == 0)
 }
 
 func (s *scanner) linked(prevEnd, start int) bool {
@@ -234,10 +293,9 @@ func (s *scanner) bestWindow(i, n int) (int, entity.Type) {
 	digitsOnly := true
 	for j := i; j < n; j++ {
 		g := s.groups[j]
-		if k+g.end-g.start > maxCompact {
+		if k = appendFolded(buf[:], k, s.text[g.start:g.end]); k < 0 {
 			break
 		}
-		k += copy(buf[k:], s.text[g.start:g.end])
 		if g.letters > 0 {
 			digitsOnly = false
 		}
@@ -505,7 +563,7 @@ func baseScore(t entity.Type) float32 {
 }
 
 func emailLocal(c byte) bool {
-	return isAlnum(c) || c == '.' || c == '_' || c == '%' || c == '+' || c == '-'
+	return isAlnum(c) || c == '.' || c == '_' || c == '%' || c == '+' || c == '-' || c >= 0x80
 }
 
 func emailDomain(c byte) bool {
@@ -537,8 +595,8 @@ func (s *scanner) emailAt(at int) (lo, hi int, ok bool) {
 	for lo > 0 && emailLocal(t[lo-1]) {
 		lo--
 	}
-	for lo < at && (t[lo] == '.' || t[lo] == '-') {
-		lo++
+	for lo < at && (t[lo] == '.' || t[lo] == '-' || t[lo] >= 0x80 && sepLen(t, lo) > 0) {
+		lo += max(sepLen(t, lo), 1)
 	}
 	hi = at + 1
 	for hi < len(t) && emailDomain(t[hi]) {

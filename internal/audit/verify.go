@@ -3,7 +3,6 @@ package audit
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 var ErrBrokenChain = errors.New("audit chain broken")
@@ -30,25 +28,111 @@ func (e *ChainError) Unwrap() error {
 	return ErrBrokenChain
 }
 
-const sealSuffixLen = len(`,"hash":"sha256:`) + 64 + len(`"}`)
+const (
+	hashKey       = `,"hash":"sha256:`
+	sealSuffixLen = len(hashKey) + 64 + len(`"}`)
+)
 
 func lineHash(line []byte) ([32]byte, bool) {
 	var sum [32]byte
-	if len(line) < sealSuffixLen || !bytes.HasPrefix(line[len(line)-sealSuffixLen:], []byte(`,"hash":"sha256:`)) ||
+	if len(line) < sealSuffixLen || !bytes.HasPrefix(line[len(line)-sealSuffixLen:], []byte(hashKey)) ||
 		!bytes.HasSuffix(line, []byte(`"}`)) {
 		return sum, false
 	}
-	h := line[len(line)-sealSuffixLen+len(`,"hash":"sha256:`) : len(line)-2]
-	if _, err := hex.Decode(sum[:], h); err != nil {
+	if _, err := hex.Decode(sum[:], line[len(line)-sealSuffixLen+len(hashKey):len(line)-2]); err != nil {
 		return sum, false
 	}
 	return sum, true
 }
 
 type record struct {
-	Type      string `json:"type"`
-	Prev      string `json:"prev"`
-	TornBytes int    `json:"torn_bytes"`
+	Type        string  `json:"type"`
+	Prev        string  `json:"prev"`
+	TornBytes   int     `json:"torn_bytes"`
+	PrevDay     string  `json:"prev_day"`
+	PrevDayHead *string `json:"prev_day_head"`
+}
+
+type FileResult struct {
+	Path    string
+	Records int
+	Head    [32]byte
+	Hashes  map[string]bool
+	Open    *record
+}
+
+type verifier struct {
+	sealer  *Sealer
+	name    string
+	prev    [32]byte
+	n       int
+	torn    []byte
+	hashes  map[string]bool
+	opening *record
+}
+
+func (v *verifier) line(line []byte) error {
+	v.n++
+	sum, ok := lineHash(line)
+	if !ok {
+		if v.torn != nil {
+			return &ChainError{v.name, v.n - 1, "unsealed record"}
+		}
+		v.torn = append([]byte(nil), line...)
+		return nil
+	}
+	body := line[:len(line)-sealSuffixLen]
+	if v.sealer.sum(body) != sum {
+		return &ChainError{v.name, v.n, "hash mismatch (edited record or wrong key)"}
+	}
+	var rec record
+	if err := json.Unmarshal(append(append([]byte(nil), body...), '}'), &rec); err != nil {
+		return &ChainError{v.name, v.n, "malformed record"}
+	}
+	if rec.Prev != hashPrefix+hex.EncodeToString(v.prev[:]) {
+		return &ChainError{v.name, v.n, "prev does not match previous hash"}
+	}
+	if v.torn != nil {
+		if rec.Type != "recovery" || rec.TornBytes != len(v.torn) {
+			return &ChainError{v.name, v.n - 1, "unsealed record"}
+		}
+		v.torn = nil
+	}
+	if rec.Type == "open" && v.n == 1 {
+		v.opening = &rec
+	}
+	v.hashes[hashPrefix+hex.EncodeToString(sum[:])] = true
+	v.prev = sum
+	return nil
+}
+
+func VerifyReader(name string, r io.Reader, sealer *Sealer, genesis [32]byte) (FileResult, error) {
+	v := &verifier{sealer: sealer, name: name, prev: genesis, hashes: map[string]bool{}}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for sc.Scan() {
+		if err := v.line(sc.Bytes()); err != nil {
+			return FileResult{Path: name, Records: v.n}, err
+		}
+	}
+	res := FileResult{Path: name, Records: v.n, Head: v.prev, Hashes: v.hashes, Open: v.opening}
+	if err := sc.Err(); err != nil {
+		return res, fmt.Errorf("read %s: %w", name, err)
+	}
+	if v.torn != nil {
+		return res, &ChainError{name, v.n, "unsealed trailing record"}
+	}
+	return res, nil
+}
+
+func VerifyFile(path string, sealer *Sealer) (FileResult, error) {
+	f, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return FileResult{}, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	tenant := filepath.Base(filepath.Dir(path))
+	return VerifyReader(path, f, sealer, sealer.Genesis(tenant, dayOf(path)))
 }
 
 type Report struct {
@@ -57,76 +141,53 @@ type Report struct {
 	Head    map[string]string
 }
 
-func VerifyReader(name string, r io.Reader, genesis [32]byte) (records int, head [32]byte, err error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
-	prev := genesis
-	n := 0
-	var pendingTorn []byte
-	for sc.Scan() {
-		n++
-		line := sc.Bytes()
-		sum, ok := lineHash(line)
-		if !ok {
-			if pendingTorn != nil {
-				return n, prev, &ChainError{name, n - 1, "unsealed record"}
-			}
-			pendingTorn = append([]byte(nil), line...)
-			continue
+func checkLink(cur, prev *FileResult) error {
+	if cur.Open == nil {
+		if prev == nil {
+			return nil
 		}
-		body := line[:len(line)-sealSuffixLen]
-		if sha256.Sum256(body) != sum {
-			return n, prev, &ChainError{name, n, "hash mismatch"}
-		}
-		var rec record
-		if err := json.Unmarshal(append(append([]byte(nil), body...), '}'), &rec); err != nil {
-			return n, prev, &ChainError{name, n, "malformed record"}
-		}
-		if rec.Prev != hashPrefix+hex.EncodeToString(prev[:]) {
-			return n, prev, &ChainError{name, n, "prev does not match previous hash"}
-		}
-		if pendingTorn != nil {
-			if rec.Type != "recovery" || rec.TornBytes != len(pendingTorn) {
-				return n, prev, &ChainError{name, n - 1, "unsealed record"}
-			}
-			pendingTorn = nil
-		}
-		prev = sum
+		return &ChainError{cur.Path, 1, "missing open record linking to the previous day"}
 	}
-	if err := sc.Err(); err != nil {
-		return n, prev, fmt.Errorf("read %s: %w", name, err)
+	if prev == nil {
+		if cur.Open.PrevDay != "" {
+			return &ChainError{cur.Path, 1, "previous day " + cur.Open.PrevDay + " is missing"}
+		}
+		return nil
 	}
-	if pendingTorn != nil {
-		return n, prev, &ChainError{name, n, "unsealed trailing record"}
+	if cur.Open.PrevDay != dayOf(prev.Path) {
+		return &ChainError{cur.Path, 1, "previous day file " + cur.Open.PrevDay + " is missing"}
 	}
-	return n, prev, nil
+	if cur.Open.PrevDayHead == nil || !prev.Hashes[*cur.Open.PrevDayHead] {
+		return &ChainError{cur.Path, 1, "previous day was truncated before the linked record"}
+	}
+	return nil
 }
 
-func VerifyFile(path string) (records int, head [32]byte, err error) {
-	f, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return 0, [32]byte{}, fmt.Errorf("open %s: %w", path, err)
-	}
-	defer f.Close()
-	tenant := filepath.Base(filepath.Dir(path))
-	day := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	return VerifyReader(path, f, Genesis(tenant, day))
-}
-
-func VerifyDir(dir string) (Report, error) {
+func VerifyDir(dir string, sealer *Sealer) (Report, error) {
 	rep := Report{Head: map[string]string{}}
-	files, err := filepath.Glob(filepath.Join(dir, "*", "*.jsonl"))
+	tenants, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
-		return rep, fmt.Errorf("list audit files: %w", err)
+		return rep, fmt.Errorf("list tenants: %w", err)
 	}
-	for _, path := range files {
-		n, head, err := VerifyFile(path)
-		rep.Files++
-		rep.Records += n
+	for _, t := range tenants {
+		files, err := dayFiles(dir, filepath.Base(t))
 		if err != nil {
 			return rep, err
 		}
-		rep.Head[path] = hashPrefix + hex.EncodeToString(head[:])
+		var prev *FileResult
+		for _, path := range files {
+			res, err := VerifyFile(path, sealer)
+			rep.Files++
+			rep.Records += res.Records
+			if err != nil {
+				return rep, err
+			}
+			if err := checkLink(&res, prev); err != nil {
+				return rep, err
+			}
+			rep.Head[path] = hashPrefix + hex.EncodeToString(res.Head[:])
+			prev = &res
+		}
 	}
 	return rep, nil
 }
