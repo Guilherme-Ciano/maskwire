@@ -1,0 +1,12 @@
+maskwire_detections_total{action="block",tenant="demo",type="CREDIT_CARD"} 1
+maskwire_detections_total{action="mask",tenant="demo",type="CPF"} 5
+maskwire_detections_total{action="mask",tenant="demo",type="EMAIL"} 5
+maskwire_detections_total{action="mask",tenant="demo",type="IBAN"} 5
+maskwire_requests_total{route="anthropic-direct",status="200",tenant="demo"} 1
+maskwire_requests_total{route="openai-direct",status="200",tenant="demo"} 1
+maskwire_requests_total{route="openai-via-cache",status="200",tenant="demo"} 3
+maskwire_requests_total{route="openai-via-cache",status="422",tenant="demo"} 1
+maskwire_restores_total{streaming="false",tenant="demo"} 4
+maskwire_restores_total{streaming="true",tenant="demo"} 9
+maskwire_foreign_tokens_total{tenant="demo",type="CPF"} 1
+maskwire_foreign_tokens_total{tenant="demo",type="EMAIL"} 1

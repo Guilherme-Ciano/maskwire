@@ -13,8 +13,8 @@ services:
       - ./deploy/maskwire.yaml:/etc/maskwire/maskwire.yaml:ro
       - audit:/var/lib/maskwire/audit
     ports:
-      - "8090:8090"
-      - "9091:9090"
+      - "${MASKWIRE_PORT:-8090}:8090"
+      - "${MASKWIRE_ADMIN_PORT:-9091}:9090"
     depends_on:
       scg:
         condition: service_started
@@ -29,7 +29,8 @@ services:
   scg:
     build:
       context: ../semantic-cache-gateway
-    image: semantic-cache-gateway:demo
+      dockerfile: ../maskwire/deploy/scg/Dockerfile
+    image: semantic-cache-gateway:demo-patched
     command: ["/app/gateway", "--config", "/app/config.yaml"]
     volumes:
       - ../semantic-cache-gateway/config.example.yaml:/app/config.yaml:ro
@@ -44,7 +45,7 @@ services:
       SCG_SERVER_RATE_LIMIT_RPS: "200"
       SCG_SERVER_RATE_LIMIT_BURST: "400"
     ports:
-      - "8080:8080"
+      - "${SCG_PORT:-18080}:8080"
     depends_on:
       redis:
         condition: service_healthy
@@ -58,7 +59,7 @@ services:
     image: mockllm:dev
     command: ["-addr", ":9000", "-chunk-min", "1", "-chunk-max", "7", "-chunk-delay", "5ms"]
     ports:
-      - "9000:9000"
+      - "${MOCKLLM_PORT:-19000}:9000"
     healthcheck:
       test: ["CMD", "/usr/local/bin/mockllm", "-healthcheck", "http://127.0.0.1:9000/healthz"]
       interval: 3s
@@ -78,7 +79,7 @@ services:
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9092:9090"
+      - "${PROMETHEUS_PORT:-9092}:9090"
     depends_on:
       - maskwire
 

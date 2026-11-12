@@ -71,17 +71,17 @@ func anthropic(text string) string {
 func run(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	proxy := fs.String("proxy", "http://localhost:8090", "maskwire base URL")
-	mock := fs.String("mock", "http://localhost:9000", "mockllm base URL")
+	mock := fs.String("mock", "http://localhost:19000", "mockllm base URL")
 	key := fs.String("key", "demo-key", "tenant key")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 	c := &client{proxy: *proxy, mock: *mock, key: *key, http: &http.Client{Timeout: 30 * time.Second}, out: out}
-	ana := "Customer support ticket: please draft a short and polite reply to our customer Ana Souza at " +
+	ana := "Customer support ticket: please draft a short and polite reply to the customer at " +
 		"ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to " +
 		"IBAN PT50 0002 0123 1234 5678 9015 4 within five working days."
-	bruno := strings.NewReplacer("Ana Souza", "Bruno Lima", "ana.souza@correio.pt", "bruno.lima@correio.pt",
-		"529.982.247-25", "111.444.777-35").Replace(ana)
+	bruno := strings.NewReplacer("ana.souza@correio.pt", "bruno.lima@correio.pt", "529.982.247-25", "111.444.777-35").
+		Replace(ana)
 	scenarios := []scenario{
 		{
 			"1. OpenAI JSON through semantic-cache-gateway (expect cache MISS)",
@@ -115,7 +115,7 @@ func run(args []string, out io.Writer) error {
 		{
 			"6. Block policy: card numbers never leave",
 			chatPath,
-			chat(false, "Charge card 4242 4242 4242 4242 for Ana."),
+			chat(false, "Charge card 4242 4242 4242 4242 for the customer."),
 			false,
 			false,
 		},
@@ -172,11 +172,9 @@ func (c *client) play(ctx context.Context, s scenario) error {
 	c.printf(
 		"status         : %d  masked=%s restored=%s cache=%s\n",
 		resp.status,
-		resp.header.Get(
-			"X-Maskwire-Masked",
-		),
-		resp.header.Get("X-Maskwire-Restored"),
-		resp.header.Get("X-Semantic-Cache"),
+		orDash(resp.header.Get("X-Maskwire-Masked")),
+		orDash(resp.header.Get("X-Maskwire-Restored")),
+		orDash(resp.header.Get("X-Semantic-Cache")),
 	)
 	if resp.status != http.StatusOK {
 		c.printf("response       : %s", body)
@@ -185,7 +183,9 @@ func (c *client) play(ctx context.Context, s scenario) error {
 		}
 		return fmt.Errorf("%w: %d", errStatus, resp.status)
 	}
-	if _, last, err := c.do(ctx, http.MethodGet, c.mock+"/last", "", false); err == nil {
+	if resp.header.Get("X-Semantic-Cache") == "HIT" {
+		c.printf("upstream saw   : (no upstream call, answered from the semantic cache)\n")
+	} else if _, last, err := c.do(ctx, http.MethodGet, c.mock+"/last", "", false); err == nil {
 		c.printf("upstream saw   : %s\n", userText(string(last)))
 	}
 	text, events := responseText(body, s.stream, s.anth)
@@ -194,6 +194,13 @@ func (c *client) play(ctx context.Context, s scenario) error {
 	}
 	c.printf("client got     : %s\n", text)
 	return nil
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 type anyMessage struct {
