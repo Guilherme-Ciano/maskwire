@@ -213,7 +213,57 @@ against a head you stored elsewhere, so ship those heads to separate storage if 
 ## Benchmarks
 
 <!-- bench:start -->
-Benchmarks are being recorded.
+Measured on 2026-11-12, commit `bfa5642`. Hardware: AMD Ryzen 5 4600G (6C/12T), 16 GB RAM, Linux 7.3.3-cachyos,
+Go 1.27.4. CPU governor `powersave` with boost on (changing it needs root), and a desktop session was running, so
+treat the numbers as a lower bound for a tuned server. Everything runs on one host over loopback against `mockllm`,
+a Go mock upstream with zero latency. These are proxy overhead numbers, not internet latency.
+
+**Added latency, non-streaming.** 4 KB chat request with 6 entities (e-mail, CPF, phone, IBAN, IP), vegeta
+open-model constant rate (no coordinated omission), 3 s warm-up discarded, 15 s measured, median of 3 runs.
+maskwire and mockllm each pinned to 4 cores with `GOMAXPROCS=4`; the audit log was on, with fsync per batch.
+"Added" is maskwire minus a direct call to the same mock at the same rate.
+
+| rate | direct p50 | direct p99 | via maskwire p50 | via maskwire p99 | **added p50** | **added p99** | maskwire p99.9 | errors |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 500 req/s | 0.26 ms | 0.56 ms | 0.63 ms | 2.14 ms | **+0.37 ms** | **+1.59 ms** | 4.4 ms | 0 |
+| 1,000 req/s | 0.17 ms | 0.42 ms | 0.47 ms | 1.13 ms | **+0.29 ms** | **+0.71 ms** | 1.9 ms | 0 |
+| 2,000 req/s | 0.18 ms | 0.46 ms | 0.49 ms | 1.56 ms | **+0.31 ms** | **+1.10 ms** | 6.0 ms | 0 |
+| 4,000 req/s | 0.19 ms | 0.82 ms | 0.47 ms | 2.08 ms | **+0.28 ms** | **+1.27 ms** | 8.2 ms | 0 |
+
+Targets were p50 < 0.5 ms and p99 < 2 ms added; both hold at every rate tested. maskwire used 0.39-0.54 CPU-ms
+per request, including both HTTP hops, JSON parsing, masking, restore and the audit write.
+
+**Streaming.** The same prompt with `stream: true`; mockllm streams the echo as about 1,000 SSE events of 1-7 bytes
+each, with no delay between them. 300 sequential requests.
+
+| | time to first byte p50 | p99 | full stream p50 | p99 |
+|---|---:|---:|---:|---:|
+| direct | 0.24 ms | 0.88 ms | 8.1 ms | 9.6 ms |
+| via maskwire | 0.57 ms | 1.26 ms | 11.8 ms | 17.1 ms |
+
+maskwire adds about 0.33 ms before the first byte, and about 4 µs per SSE event (each event is decoded,
+restored and re-encoded). A real model emits tens of events per second, so per-event cost is negligible next to
+generation time.
+
+**Micro-benchmarks**, one core (`-cpu 1`), 6 runs, benchstat median ± 95% CI
+([raw](bench/results/raw/3824307.txt), [benchstat](bench/results/raw/3824307-benchstat.txt)):
+
+| benchmark | result | allocs/op |
+|---|---:|---:|
+| Detect, clean text, 4 KB | 15.8 µs, **259 MB/s** ± 1% | **0** |
+| Detect, clean text, 64 KB | 247 µs, 265 MB/s ± 2% | 0 |
+| Detect, dense text (an entity every ~30 bytes), 4 KB | 436 µs, 9.4 MB/s | 966 |
+| Mask a 4 KB OpenAI request (walk, detect, tokenise) | 62 µs ± 4% | 82 |
+| Restore a 4 KB OpenAI response | 25 µs ± 4% | 12 |
+| Streaming restore, 64-byte chunks | 292 MB/s ± 4% | 1 per stream |
+| Streaming restore, 8-byte chunks | 102 MB/s ± 2% | 1 per stream |
+| JSON splice, 1.6 MB body with nothing to mask | 304 MB/s ± 1% | 0 |
+
+The detection target was 150 MB/s per core on ordinary text. Dense text is slow because every phone candidate is
+validated with libphonenumber; the per-request budget (`detect.phone_budget`) caps that cost.
+
+Reproduce: `make bench`, then `make build && cd bench && taskset -c 0-3 go run ./cmd/loadgen`. Full report:
+[`bench/results/2026-11-12-ryzen-5-bfa5642/report.md`](bench/results/2026-11-12-ryzen-5-bfa5642/report.md).
 <!-- bench:end -->
 
 ## Development
