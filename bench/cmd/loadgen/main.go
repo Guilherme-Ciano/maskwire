@@ -10,7 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,6 +24,20 @@ import (
 )
 
 var errNotReady = errors.New("service did not become ready")
+
+const (
+	targetDirect   = "direct"
+	targetMaskwire = "maskwire"
+	unknown        = "unknown"
+	directURL      = "http://127.0.0.1:19000/v1/chat/completions"
+	maskwireURL    = "http://127.0.0.1:18090/v1/chat/completions"
+)
+
+type target struct{ name, url string }
+
+func targets() []target {
+	return []target{{targetDirect, directURL}, {targetMaskwire, maskwireURL}}
+}
 
 type options struct {
 	bin       string
@@ -121,38 +134,12 @@ func run(args []string) error {
 	}
 	body := payload(o.size, false)
 	s := summary{Env: environment(o), Payload: len(body)}
-	for _, rate := range o.rates {
-		for rep := range o.reps {
-			for _, tg := range []struct{ name, url string }{
-				{"direct", "http://127.0.0.1:19000/v1/chat/completions"},
-				{"maskwire", "http://127.0.0.1:18090/v1/chat/completions"},
-			} {
-				pid := 0
-				if tg.name == "maskwire" {
-					pid = proxyPID
-				}
-				r, err := attack(tg.name, tg.url, body, rate, rep, o, pid)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(
-					os.Stderr,
-					"%-8s rate=%-5d rep=%d p50=%.0fus p99=%.0fus ok=%.4f\n",
-					r.Target,
-					r.Rate,
-					r.Rep,
-					r.P50us,
-					r.P99us,
-					r.Success,
-				)
-				s.Runs = append(s.Runs, r)
-			}
-		}
+	runs, err := sweep(o, body, proxyPID)
+	if err != nil {
+		return err
 	}
-	for _, tg := range []struct{ name, url string }{
-		{"direct", "http://127.0.0.1:19000/v1/chat/completions"},
-		{"maskwire", "http://127.0.0.1:18090/v1/chat/completions"},
-	} {
+	s.Runs = runs
+	for _, tg := range targets() {
 		sr, err := streamProbe(ctx, tg.name, tg.url, payload(o.size, true), o.streams)
 		if err != nil {
 			return err
@@ -162,11 +149,49 @@ func run(args []string) error {
 	return write(o.out, s)
 }
 
-func taskset(cpus, bin string, args ...string) *exec.Cmd {
-	if _, err := exec.LookPath("taskset"); err == nil && cpus != "" {
-		return exec.Command("taskset", append([]string{"-c", cpus, bin}, args...)...)
+func sweep(o options, body []byte, proxyPID int) ([]runResult, error) {
+	var runs []runResult
+	for _, rate := range o.rates {
+		for rep := range o.reps {
+			for _, tg := range targets() {
+				pid := 0
+				if tg.name == targetMaskwire {
+					pid = proxyPID
+				}
+				r, err := attack(tg.name, tg.url, body, rate, rep, o, pid)
+				if err != nil {
+					return runs, err
+				}
+				fmt.Fprintf(os.Stderr, "%-8s rate=%-5d rep=%d p50=%.0fus p99=%.0fus ok=%.4f\n",
+					r.Target, r.Rate, r.Rep, r.P50us, r.P99us, r.Success)
+				runs = append(runs, r)
+			}
+		}
 	}
-	return exec.Command(bin, args...)
+	return runs, nil
+}
+
+func taskset(ctx context.Context, cpus, bin string, args ...string) *exec.Cmd {
+	if _, err := exec.LookPath("taskset"); err == nil && cpus != "" {
+		return exec.CommandContext(ctx, "taskset", append([]string{"-c", cpus, bin}, args...)...)
+	}
+	return exec.CommandContext(ctx, bin, args...)
+}
+
+func stopAll(cmds []*exec.Cmd) func() {
+	return func() {
+		for _, c := range cmds {
+			if c.Process == nil {
+				continue
+			}
+			if err := c.Process.Signal(os.Interrupt); err != nil {
+				continue
+			}
+			if err := c.Wait(); err != nil {
+				fmt.Fprintln(os.Stderr, "child exit:", err)
+			}
+		}
+	}
 }
 
 func startStack(ctx context.Context, o options, work string) (stop func(), proxyPID int, err error) {
@@ -197,9 +222,9 @@ tenants:
 		return func() {}, 0, fmt.Errorf("write config: %w", err)
 	}
 	gmp := "GOMAXPROCS=4"
-	mock := taskset(o.mockCPUs, filepath.Join(o.bin, "mockllm"), "-addr", "127.0.0.1:19000")
+	mock := taskset(ctx, o.mockCPUs, filepath.Join(o.bin, "mockllm"), "-addr", "127.0.0.1:19000")
 	mock.Env = append(os.Environ(), gmp)
-	proxy := taskset(o.proxyCPUs, filepath.Join(o.bin, "maskwire"), "serve", "--config", cfgPath)
+	proxy := taskset(ctx, o.proxyCPUs, filepath.Join(o.bin, "maskwire"), "serve", "--config", cfgPath)
 	proxy.Env = append(
 		os.Environ(),
 		gmp,
@@ -208,14 +233,8 @@ tenants:
 	)
 	proxy.Stderr = os.Stderr
 	cmds := []*exec.Cmd{mock, proxy}
-	stop = func() {
-		for _, c := range cmds {
-			if c.Process != nil {
-				_ = c.Process.Signal(os.Interrupt)
-				_ = c.Wait()
-			}
-		}
-	}
+	stop = stopAll(cmds)
+
 	for _, c := range cmds {
 		if err := c.Start(); err != nil {
 			return stop, 0, fmt.Errorf("start %s: %w", c.Path, err)
@@ -387,7 +406,7 @@ func pct(v []float64, q float64) float64 {
 func readFirst(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "unknown"
+		return unknown
 	}
 	return strings.TrimSpace(string(b))
 }
@@ -395,7 +414,7 @@ func readFirst(path string) string {
 func cpuModel() string {
 	f, err := os.Open("/proc/cpuinfo")
 	if err != nil {
-		return "unknown"
+		return unknown
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
@@ -404,7 +423,7 @@ func cpuModel() string {
 			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), ":"))
 		}
 	}
-	return "unknown"
+	return unknown
 }
 
 func logicalCPUs() int {
@@ -416,15 +435,15 @@ func logicalCPUs() int {
 }
 
 func git(args ...string) string {
-	out, err := exec.Command("git", args...).Output()
+	out, err := exec.CommandContext(context.Background(), "git", args...).Output()
 	if err != nil {
-		return "unknown"
+		return unknown
 	}
 	return strings.TrimSpace(string(out))
 }
 
 func environment(o options) map[string]string {
-	mem := "unknown"
+	mem := unknown
 	if f, err := os.ReadFile("/proc/meminfo"); err == nil {
 		mem = strings.Fields(strings.SplitN(string(f), "\n", 2)[0])[1] + " kB"
 	}
@@ -511,7 +530,7 @@ func report(s summary) string {
 			if r.Rate != rate {
 				continue
 			}
-			if r.Target == "direct" {
+			if r.Target == targetDirect {
 				d = append(d, r)
 			} else {
 				p = append(p, r)
@@ -574,7 +593,7 @@ func write(dir string, s summary) error {
 	); err != nil {
 		return fmt.Errorf("write results: %w", err)
 	}
-	_, err = io.WriteString(os.Stdout, rep+"\nwritten to "+out+"\n")
+	_, err = os.Stdout.WriteString(rep + "\nwritten to " + out + "\n")
 	if err != nil {
 		return fmt.Errorf("print report: %w", err)
 	}
