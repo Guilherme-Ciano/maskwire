@@ -9,6 +9,7 @@ ARG TARGETARCH=amd64
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/maskwire ./cmd/maskwire && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/mockllm ./cmd/mockllm && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/demo ./cmd/demo && \
     mkdir -p /out/audit
 
 FROM gcr.io/distroless/static-debian13:nonroot AS mockllm
@@ -16,6 +17,11 @@ COPY --from=build /out/mockllm /usr/local/bin/mockllm
 USER 65532:65532
 EXPOSE 9000
 ENTRYPOINT ["/usr/local/bin/mockllm"]
+
+FROM gcr.io/distroless/static-debian13:nonroot AS demo
+COPY --from=build /out/demo /usr/local/bin/demo
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/demo"]
 
 FROM gcr.io/distroless/static-debian13:nonroot AS maskwire
 COPY --from=build /out/maskwire /usr/local/bin/maskwire

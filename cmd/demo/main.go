@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -153,6 +154,7 @@ func (c *client) do(ctx context.Context, method, url, body string, auth bool) (r
 	if err != nil {
 		return r, nil, fmt.Errorf("read response: %w", err)
 	}
+	maps.Copy(r.header, resp.Trailer)
 	return r, b, nil
 }
 

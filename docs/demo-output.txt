@@ -1,4 +1,3 @@
-
 === 1. OpenAI JSON through semantic-cache-gateway (expect cache MISS)
 client sent    : Customer support ticket: please draft a short and polite reply to the customer at ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to IBAN PT50 0002 0123 1234 5678 9015 4 within five working days.
 status         : 200  masked=3 restored=3 cache=MISS
@@ -20,16 +19,16 @@ client got     : I received: Customer support ticket: please draft a short and p
 
 === 4. Direct route, real SSE split into 1-7 byte chunks
 client sent    : Customer support ticket: please draft a short and polite reply to the customer at ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to IBAN PT50 0002 0123 1234 5678 9015 4 within five working days.
-status         : 200  masked=3 restored=- cache=-
+status         : 200  masked=3 restored=3 cache=-
 upstream saw   : Customer support ticket: please draft a short and polite reply to the customer at [EMAIL_FBDYD9] about the refund for order 7731, her CPF is [CPF_A0SA1Q] and the refund goes to IBAN [IBAN_7TCYYA] within five working days.
-stream events  : 54 (content-type text/event-stream)
+stream events  : 53 (content-type text/event-stream)
 client got     : I received: Customer support ticket: please draft a short and polite reply to the customer at ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to IBAN PT50 0002 0123 1234 5678 9015 4 within five working days.
 
 === 5. Anthropic Messages, streaming with a thinking block
 client sent    : Customer support ticket: please draft a short and polite reply to the customer at ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to IBAN PT50 0002 0123 1234 5678 9015 4 within five working days.
-status         : 200  masked=3 restored=- cache=-
+status         : 200  masked=3 restored=3 cache=-
 upstream saw   : Customer support ticket: please draft a short and polite reply to the customer at [EMAIL_FBDYD9] about the refund for order 7731, her CPF is [CPF_A0SA1Q] and the refund goes to IBAN [IBAN_7TCYYA] within five working days.
-stream events  : 59 (content-type text/event-stream)
+stream events  : 57 (content-type text/event-stream)
 client got     : I received: Customer support ticket: please draft a short and polite reply to the customer at ana.souza@correio.pt about the refund for order 7731, her CPF is 529.982.247-25 and the refund goes to IBAN PT50 0002 0123 1234 5678 9015 4 within five working days.
 
 === 6. Block policy: card numbers never leave

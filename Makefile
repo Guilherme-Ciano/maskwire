@@ -69,7 +69,11 @@ up: ## Start the compose demo
 	docker compose up --build -d --wait
 
 .PHONY: demo
-demo: ## Run the demo client against the compose stack
+demo: ## Run the demo client in a container against the compose stack
+	docker compose --profile demo run --rm --build demo
+
+.PHONY: demo-local
+demo-local: ## Run the demo client with the local Go toolchain
 	$(GO) run ./cmd/demo
 
 .PHONY: down
