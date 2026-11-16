@@ -163,6 +163,7 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 			KeyHash:      h,
 			Foreign:      foreign,
 			ToolWithhold: withhold,
+			Limit:        httpapi.NewLimiter(t.RateLimit.RPS, t.RateLimit.Burst),
 			PromptHint:   t.PromptHint,
 			ResponseScan: t.ResponseScan != "off",
 		})

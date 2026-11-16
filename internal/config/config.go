@@ -117,6 +117,12 @@ type Tenant struct {
 	ResponseScan string          `koanf:"response_scan"`
 	Foreign      string          `koanf:"foreign_token"`
 	ToolRestore  []string        `koanf:"tool_restore"`
+	RateLimit    RateLimit       `koanf:"rate_limit"`
+}
+
+type RateLimit struct {
+	RPS   float64 `koanf:"rps"`
+	Burst int     `koanf:"burst"`
 }
 
 func Defaults() Config {
@@ -300,6 +306,9 @@ func (t Tenant) validate(i int, ids map[string]bool) []error {
 	}
 	if t.Foreign != "" && t.Foreign != "generic" && t.Foreign != "keep" {
 		errs = append(errs, fmt.Errorf("tenants[%d].foreign_token must be generic or keep", i))
+	}
+	if t.RateLimit.RPS < 0 || t.RateLimit.Burst < 0 {
+		errs = append(errs, fmt.Errorf("tenants[%d].rate_limit values must not be negative", i))
 	}
 	if _, err := t.ToolWithhold(); err != nil {
 		errs = append(errs, fmt.Errorf("tenants[%d].tool_restore: %w", i, err))

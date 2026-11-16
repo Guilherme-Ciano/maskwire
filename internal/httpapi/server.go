@@ -43,6 +43,7 @@ const (
 var (
 	ErrUnauthorized     = errors.New("missing or invalid tenant key")
 	ErrUnsupportedMedia = errors.New("compressed request bodies are not supported")
+	ErrRateLimited      = errors.New("tenant request rate exceeded")
 	ErrUpstreamEncoding = errors.New("upstream returned an encoded body")
 	ErrResponseTooLarge = errors.New("upstream response too large")
 	ErrAuditUnavailable = errors.New("audit log unavailable")
@@ -55,6 +56,7 @@ type Tenant struct {
 	ToolWithhold entity.Mask
 	PromptHint   bool
 	ResponseScan bool
+	Limit        *Limiter
 }
 
 type Route struct {
@@ -176,6 +178,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt *Route) 
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return
 	}
+	if !s.admit(w, tenant, rt) {
+		return
+	}
 	if r.ContentLength > 0 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "passthrough routes do not accept a request body")
 		return
@@ -249,6 +254,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	tenant, err := s.authenticate(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		return
+	}
+	if !s.admit(w, tenant, rt) {
 		return
 	}
 	x.tenant = tenant

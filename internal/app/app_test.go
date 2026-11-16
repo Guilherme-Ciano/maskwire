@@ -511,6 +511,23 @@ func TestStreamRestoredTrailer(t *testing.T) {
 	}
 }
 
+func TestTenantRateLimit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, func(c *config.Config) { c.Tenants[0].RateLimit = config.RateLimit{RPS: 0.01, Burst: 2} })
+	for i := range 2 {
+		if r := h.post(chatPath, chatBody(t, false), nil); r.status != http.StatusOK {
+			t.Fatalf("request %d: %d", i, r.status)
+		}
+	}
+	r := h.post(chatPath, chatBody(t, false), nil)
+	if r.status != http.StatusTooManyRequests || r.header.Get("Retry-After") == "" {
+		t.Fatalf("status %d retry %q", r.status, r.header.Get("Retry-After"))
+	}
+	if !strings.Contains(r.body, "rate_limited") {
+		t.Fatalf("body %s", r.body)
+	}
+}
+
 func TestOverheadMetric(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

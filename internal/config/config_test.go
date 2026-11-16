@@ -158,3 +158,13 @@ func TestToolWithhold(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitValidation(t *testing.T) {
+	c := Defaults()
+	c.Keys.MasterKey = strings.Repeat("ab", 32)
+	c.Routes = []Route{{Name: "r", Path: "/v1/chat/completions", Upstream: "http://x", Codec: "openai"}}
+	c.Tenants = []Tenant{{ID: "t", KeySHA256: HashKey("0123456789abcdef0123"), RateLimit: RateLimit{RPS: -1}}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "rate_limit") {
+		t.Fatalf("got %v", err)
+	}
+}
