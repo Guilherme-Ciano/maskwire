@@ -48,10 +48,11 @@ var (
 )
 
 type Tenant struct {
-	Mask       *mask.Tenant
-	KeyHash    [32]byte
-	Foreign    restore.Foreign
-	PromptHint bool
+	Mask         *mask.Tenant
+	KeyHash      [32]byte
+	Foreign      restore.Foreign
+	PromptHint   bool
+	ResponseScan bool
 }
 
 type Route struct {
@@ -231,6 +232,7 @@ type exchange struct {
 	stalled  bool
 	observe  bool
 	masked   []byte
+	upstream []byte
 	onStall  func()
 	status   int
 }
@@ -301,6 +303,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	}
 	x.inDigest = sha256.Sum256(masked)
 	s.forward(w, r, x, masked, observe)
+}
+
+const maxScanned = 64 << 10
+
+func (x *exchange) tap(b []byte) {
+	if room := maxScanned - len(x.upstream); room > 0 {
+		x.upstream = append(x.upstream, b[:min(len(b), room)]...)
+	}
 }
 
 type exchangeKey struct{}
@@ -383,6 +393,9 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 		ct = ""
 	}
 	opts := restore.Options{Foreign: x.tenant.Foreign}
+	if x.tenant.ResponseScan {
+		opts.Tap = x.tap
+	}
 	if ct == "text/event-stream" {
 		x.stream = true
 		src := teeCloser{Reader: io.TeeReader(resp.Body, x.outHash), Closer: resp.Body}
@@ -497,11 +510,21 @@ func (s *Server) finish(r *http.Request, x *exchange) {
 	if x.stream {
 		s.metrics.Holdback.Observe(float64(x.stats.MaxHeld))
 	}
+	var generated [entity.Count]uint32
+	if len(x.upstream) > 0 {
+		generated = s.engine.Scan(x.upstream)
+		for t, n := range generated {
+			if n > 0 {
+				s.metrics.ResponseDetections.WithLabelValues(tenantID, entity.Type(t).String()).Add(float64(n))
+			}
+		}
+	}
 	if s.auditor == nil {
 		return
 	}
 	ev := audit.Event{
-		TS: x.start, Tenant: tenantID, Route: x.route.Name, Upstream: x.route.Upstream.Host, Model: x.meta.Model,
+		Generated: generated,
+		TS:        x.start, Tenant: tenantID, Route: x.route.Name, Upstream: x.route.Upstream.Host, Model: x.meta.Model,
 		Mode: x.tenant.Mask.Policy.Mode.String(), Status: x.status, Streaming: x.stream,
 		Restored: x.stats.Restored, Foreign: x.stats.Foreign, InputDigest: x.inDigest,
 		MaskMicros: x.maskTime.Microseconds(), TotalMicros: total.Microseconds(),

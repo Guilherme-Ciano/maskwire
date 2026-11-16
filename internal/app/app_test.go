@@ -312,6 +312,26 @@ func TestPromptHint(t *testing.T) {
 	}
 }
 
+func TestResponseScanCountsGeneratedPII(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	h.cached = []byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":` +
+		`"Call our office at +351 912 345 678 or mail help@company.pt"},"finish_reason":"stop"}]}`)
+	h.post("/cache"+chatPath, chatBody(t, false), nil)
+	h.post(chatPath, chatBody(t, false), nil)
+	h.waitAudit(2)
+	log := h.auditLog()
+	if !strings.Contains(log, `"response_detections":{"EMAIL":1,"PHONE":1}`) {
+		t.Fatalf("generated PII not counted: %s", log)
+	}
+	if strings.Count(log, `"response_detections":{}`) != 1 {
+		t.Fatalf("echoed tokens must not count as generated PII: %s", log)
+	}
+	if strings.Contains(log, "company.pt") || strings.Contains(log, "912 345") {
+		t.Fatal("audit must hold counts, never values")
+	}
+}
+
 func TestEmbeddingsAreMasked(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

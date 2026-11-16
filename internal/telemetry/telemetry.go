@@ -46,6 +46,8 @@ type Metrics struct {
 	RequestLatency *prometheus.HistogramVec
 	Holdback       prometheus.Histogram
 	StreamEvents   *prometheus.CounterVec
+
+	ResponseDetections *prometheus.CounterVec
 }
 
 func durationBuckets() []float64 {
@@ -106,12 +108,16 @@ func NewMetrics() *Metrics {
 			Name: "maskwire_stream_holdback_bytes", Help: "Maximum bytes held back per streamed response.",
 			Buckets: []float64{0, 1, 2, 4, 8, 16, 24, 32},
 		}),
+		ResponseDetections: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "maskwire_response_detections_total",
+			Help: "Entities found in upstream responses that were not issued as tokens, by tenant and type.",
+		}, []string{labelTenant, labelType}),
 		StreamEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "maskwire_stream_events_total", Help: "Upstream SSE events by outcome.",
 		}, []string{"outcome"}),
 	}
 	reg.MustRegister(m.Requests, m.Detections, m.Blocked, m.ForeignTokens, m.Restores, m.MaskDuration,
-		m.RequestLatency, m.Holdback, m.StreamEvents)
+		m.RequestLatency, m.Holdback, m.StreamEvents, m.ResponseDetections)
 	return m
 }
 

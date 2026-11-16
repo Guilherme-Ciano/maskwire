@@ -96,14 +96,15 @@ type Rule struct {
 }
 
 type Tenant struct {
-	ID          string          `koanf:"id"`
-	KeySHA256   string          `koanf:"key_sha256"`
-	Mode        string          `koanf:"mode"`
-	Default     string          `koanf:"default"`
-	ByType      map[string]Rule `koanf:"by_type"`
-	TokenLength int             `koanf:"token_length"`
-	PromptHint  bool            `koanf:"prompt_hint"`
-	Foreign     string          `koanf:"foreign_token"`
+	ID           string          `koanf:"id"`
+	KeySHA256    string          `koanf:"key_sha256"`
+	Mode         string          `koanf:"mode"`
+	Default      string          `koanf:"default"`
+	ByType       map[string]Rule `koanf:"by_type"`
+	TokenLength  int             `koanf:"token_length"`
+	PromptHint   bool            `koanf:"prompt_hint"`
+	ResponseScan string          `koanf:"response_scan"`
+	Foreign      string          `koanf:"foreign_token"`
 }
 
 func Defaults() Config {
@@ -281,6 +282,9 @@ func (t Tenant) validate(i int, ids map[string]bool) []error {
 			errs,
 			fmt.Errorf("tenants[%d].token_length must be in %d..%d", i, token.MinLength, token.MaxLength),
 		)
+	}
+	if t.ResponseScan != "" && t.ResponseScan != "observe" && t.ResponseScan != "off" {
+		errs = append(errs, fmt.Errorf("tenants[%d].response_scan must be observe or off", i))
 	}
 	if t.Foreign != "" && t.Foreign != "generic" && t.Foreign != "keep" {
 		errs = append(errs, fmt.Errorf("tenants[%d].foreign_token must be generic or keep", i))

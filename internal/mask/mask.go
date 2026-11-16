@@ -113,6 +113,14 @@ func (s *Session) SurfaceVariants() int {
 	return s.variants
 }
 
+func (e *Engine) Scan(text []byte) (counts [entity.Count]uint32) {
+	spans := e.det.DetectWith(nil, text, e.det.NewPhoneState())
+	for _, sp := range spans {
+		counts[sp.Type]++
+	}
+	return counts
+}
+
 func (e *Engine) NewSession(t *Tenant) *Session {
 	s, ok := e.pool.Get().(*Session)
 	if !ok {

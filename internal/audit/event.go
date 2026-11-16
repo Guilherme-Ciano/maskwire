@@ -39,6 +39,7 @@ type Event struct {
 	InputDigest  [32]byte
 	OutputDigest [32]byte
 	HasOutput    bool
+	Generated    [entity.Count]uint32
 }
 
 func SafeModel(s string) string {
@@ -81,6 +82,24 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
+func appendCounts(dst []byte, counts *[entity.Count]uint32) []byte {
+	dst = append(dst, '{')
+	first := true
+	for t, n := range counts {
+		if n == 0 {
+			continue
+		}
+		if !first {
+			dst = append(dst, ',')
+		}
+		first = false
+		dst = jsonx.Quote(dst, []byte(entity.Type(t).String()))
+		dst = append(dst, ':')
+		dst = strconv.AppendUint(dst, uint64(n), 10)
+	}
+	return append(dst, '}')
+}
+
 func (e *Event) appendBody(dst []byte) []byte {
 	dst = append(dst, `{"v":`...)
 	dst = strconv.AppendInt(dst, Version, 10)
@@ -105,21 +124,9 @@ func (e *Event) appendBody(dst []byte) []byte {
 	dst = appendKV(dst, "streaming")
 	dst = strconv.AppendBool(dst, e.Streaming)
 	dst = appendKV(dst, "detections")
-	dst = append(dst, '{')
-	first := true
-	for t, n := range e.Detected {
-		if n == 0 {
-			continue
-		}
-		if !first {
-			dst = append(dst, ',')
-		}
-		first = false
-		dst = jsonx.Quote(dst, []byte(entity.Type(t).String()))
-		dst = append(dst, ':')
-		dst = strconv.AppendUint(dst, uint64(n), 10)
-	}
-	dst = append(dst, '}')
+	dst = appendCounts(dst, &e.Detected)
+	dst = appendKV(dst, "response_detections")
+	dst = appendCounts(dst, &e.Generated)
 	dst = appendKV(dst, "actions")
 	dst = append(dst, `{"mask":`...)
 	dst = strconv.AppendUint(dst, uint64(e.Mask), 10)

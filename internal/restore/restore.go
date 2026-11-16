@@ -35,6 +35,7 @@ const (
 type Options struct {
 	Foreign  Foreign
 	Encoding Encoding
+	Tap      func(upstream []byte)
 }
 
 type Stats struct {
@@ -578,6 +579,9 @@ func (s *Stream) Feed(dst, chunk []byte) []byte {
 	if len(chunk) == 0 {
 		return dst
 	}
+	if s.opts.Tap != nil {
+		s.opts.Tap(chunk)
+	}
 	if s.held > 0 {
 		var win [2 * MaxTokenLen]byte
 		old := s.held
@@ -646,6 +650,9 @@ func (s *Stream) resolve(dst, raw []byte, m *match) ([]byte, bool) {
 }
 
 func Restore(dst, src []byte, set Set, o Options) ([]byte, Stats) {
+	if o.Tap != nil {
+		o.Tap(src)
+	}
 	s := NewStream(set, o)
 	dst, _, _ = s.process(dst, src, len(src), true, 0)
 	return dst, s.stats
