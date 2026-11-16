@@ -184,6 +184,13 @@ func (s *scanner) words() {
 			i += n
 			continue
 		}
+		if isLower(c) {
+			if j := lowerRun(t, i); j > 0 {
+				s.flushRun()
+				i = j
+				continue
+			}
+		}
 		g, clean := s.word(i)
 		if clean {
 			s.addGroup(g)
@@ -192,6 +199,20 @@ func (s *scanner) words() {
 		}
 		i = max(g.end, i+1)
 	}
+}
+
+func lowerRun(t []byte, i int) int {
+	j := i + 1
+	for j < len(t) && isLower(t[j]) {
+		j++
+	}
+	if j < len(t) {
+		c := t[j]
+		if c >= 0x80 || isAlnum(c) || c == '_' {
+			return -1
+		}
+	}
+	return j
 }
 
 func (s *scanner) word(i int) (g group, clean bool) {
