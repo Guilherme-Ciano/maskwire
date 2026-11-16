@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -80,6 +81,69 @@ func TestDetect(t *testing.T) {
 			if got[i] != tc.want[i] {
 				t.Errorf("%q: got %v, want %v", tc.in, got, tc.want)
 			}
+		}
+	}
+}
+
+func TestBusinessNumbersAreNotPhones(t *testing.T) {
+	t.Parallel()
+	d := New(Options{})
+	for _, in := range []string{
+		"invoice 2026/000123", "ISBN 978-3-16-148410-0", "SSN 078-05-1120", "hotel 912345678",
+		"order 4815162342", "batch 123 456 7890 12",
+	} {
+		for _, sp := range d.Detect(nil, []byte(in)) {
+			if sp.Type == entity.Phone {
+				t.Errorf("%q: %q detected as phone", in, in[sp.Start:sp.End])
+			}
+		}
+	}
+}
+
+func TestPhoneFalsePositiveRate(t *testing.T) {
+	t.Parallel()
+	d := New(Options{})
+	rng := rand.New(rand.NewPCG(7, 11))
+	const trials = 5000
+	hits := 0
+	for range trials {
+		n := 9 + rng.IntN(7)
+		b := make([]byte, n)
+		b[0] = byte('1' + rng.IntN(9))
+		for i := 1; i < n; i++ {
+			b[i] = byte('0' + rng.IntN(10))
+		}
+		for _, sp := range d.Detect(nil, []byte("order number "+string(b)+" shipped")) {
+			if sp.Type == entity.Phone {
+				hits++
+			}
+		}
+	}
+	if rate := float64(hits) / trials; rate > 0.005 {
+		t.Fatalf("phone false positive rate %.2f%% on random order numbers", 100*rate)
+	}
+}
+
+func TestIDScoreReflectsContext(t *testing.T) {
+	t.Parallel()
+	d := New(Options{})
+	cases := []struct {
+		in   string
+		want float32
+	}{
+		{"CPF 52998224725", 1},
+		{"o cpf do cliente: 52998224725", 1},
+		{"pedido 52998224725", bareIDScore},
+		{"529.982.247-25", 0.9},
+		{"cartão 4242424242424242", 1},
+		{"ref 4242424242424242", bareIDScore},
+		{"NIF 123456789", 1},
+		{"ticket 123456789", bareIDScore},
+	}
+	for _, tc := range cases {
+		spans := d.Detect(nil, []byte(tc.in))
+		if len(spans) != 1 || spans[0].Score != tc.want {
+			t.Errorf("%q: got %+v, want score %.1f", tc.in, spans, tc.want)
 		}
 	}
 }

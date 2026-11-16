@@ -15,7 +15,8 @@ const (
 	maxGroups      = 48
 	maxCompact     = 34
 	defaultBudget  = 64
-	keywordWindow  = 40
+	keywordWindow  = 48
+	bareIDScore    = 0.6
 	minPhoneDigits = 9
 	maxPhoneDigits = 15
 )
@@ -266,7 +267,7 @@ func (s *scanner) flushRun() {
 		if end < 0 {
 			continue
 		}
-		s.emit(s.groups[i].start, s.groups[end].end, typ)
+		s.emitScore(s.groups[i].start, s.groups[end].end, typ, s.idScore(typ, i, end))
 		for k := i; k <= end; k++ {
 			claimed[k] = true
 		}
@@ -324,7 +325,7 @@ func (s *scanner) classifyDigits(b []byte, first int) entity.Type {
 		return entity.PTNIF
 	case len(b) == 11 && checksum.CPF(b):
 		return entity.CPF
-	case len(b) == 11 && checksum.DESteuerID(b) && s.keyword(s.groups[first].start):
+	case len(b) == 11 && checksum.DESteuerID(b) && s.context(s.groups[first].start, idWords(entity.DESteuerID)...):
 		return entity.DESteuerID
 	case len(b) == 14 && checksum.CNPJ(b):
 		return entity.CNPJ
@@ -354,7 +355,11 @@ func classifyAlnum(b []byte) entity.Type {
 	return entity.Unknown
 }
 
-func (s *scanner) keyword(pos int) bool {
+func letterByte(c byte) bool {
+	return isLower(c) || isUpper(c) || c >= 0x80
+}
+
+func (s *scanner) context(pos int, words ...string) bool {
 	lo := max(pos-keywordWindow, 0)
 	var buf [keywordWindow]byte
 	w := buf[:0]
@@ -364,8 +369,62 @@ func (s *scanner) keyword(pos int) bool {
 		}
 		w = append(w, c)
 	}
-	return bytes.Contains(w, []byte("steuer")) || bytes.Contains(w, []byte("idnr")) ||
-		bytes.Contains(w, []byte("identification")) || bytes.Contains(w, []byte("tax id"))
+	for _, word := range words {
+		for off := 0; ; {
+			k := bytes.Index(w[off:], []byte(word))
+			if k < 0 {
+				break
+			}
+			at := off + k
+			if at == 0 || !letterByte(w[at-1]) {
+				return true
+			}
+			off = at + 1
+		}
+	}
+	return false
+}
+
+func idWords(t entity.Type) []string {
+	switch t {
+	case entity.CPF:
+		return []string{"cpf"}
+	case entity.CNPJ:
+		return []string{"cnpj"}
+	case entity.PTNIF:
+		return []string{"nif", "nipc", "contribuinte", "fiscal"}
+	case entity.FRNIR:
+		return []string{"nir", "insee", "sécu", "secu", "sociale"}
+	case entity.CreditCard:
+		return []string{"card", "cart", "tarjeta", "karte", "visa", "master", "amex", "crédit", "credit", "pan"}
+	case entity.DESteuerID:
+		return []string{"steuer", "idnr", "tax id", "tin"}
+	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.ESDNI, entity.ESNIE,
+		entity.ITCF, entity.IBAN:
+		return nil
+	}
+	return nil
+}
+
+func phoneWords() []string {
+	return []string{
+		"tel", "fone", "phone", "celular", "cell", "mobile", "móvil", "movil", "móvel", "movel", "whatsapp",
+		"ligue", "ligar", "call", "contato", "contacto", "handy", "portable", "sms", "fax",
+	}
+}
+
+func (s *scanner) idScore(t entity.Type, first, last int) float32 {
+	words := idWords(t)
+	if words == nil || t == entity.DESteuerID {
+		return baseScore(t)
+	}
+	if s.context(s.groups[first].start, words...) {
+		return 1
+	}
+	if last > first {
+		return 0.9
+	}
+	return bareIDScore
 }
 
 func (s *scanner) ipv4(i int) (entity.Type, bool) {
@@ -498,10 +557,14 @@ func (s *scanner) tryPhone(i, end int) bool {
 	}
 	start := s.groups[i].start
 	plus := start > 0 && s.text[start-1] == '+'
-	if plus || (start > 0 && s.text[start-1] == '(') {
+	paren := start > 0 && s.text[start-1] == '('
+	if plus || paren {
 		start--
 	}
 	if digits < minPhoneDigits && (!plus || digits < 7) {
+		return false
+	}
+	if !plus && !paren && !s.context(start, phoneWords()...) {
 		return false
 	}
 	stop := s.groups[end].end
