@@ -39,26 +39,29 @@ That output comes from a real `docker compose up` run, recorded in [`docs/demo-o
 
 ## What this is not
 
-maskwire is a technical measure, not a compliance product. Read this table before you put it in front of anything.
+maskwire is a technical measure, not a compliance product. Read this table before you put it in front of anything;
+[`docs/compliance.md`](docs/compliance.md) maps it article by article to the GDPR, the AI Act and the LGPD.
 
 | maskwire can honestly claim | maskwire does **not** claim |
 |---|---|
 | It pseudonymises (GDPR Art. 4(5)) the entity types it detects before they leave your network. | "GDPR compliant", "anonymised", or "no personal data reaches the LLM". Pseudonymised data is still personal data (GDPR Recital 26). |
 | Detection quality is what the tests and published evaluations show, per entity type. | "Detects all PII". Personal **names**, postal addresses, free-text health data and other quasi-identifiers are **not detected** in v0.1. |
-| It writes a tamper-evident, HMAC-chained request log with no raw personal data, which can support your own record keeping and log retention. | "EU AI Act compliance in a box", or a complete Art. 30 record. The log is one input to those, owned by you. |
+| It writes a tamper-evident, HMAC-chained request log with no raw personal data, with optional external anchors, which can support your own record keeping and log retention. | "EU AI Act compliance in a box", or a complete Art. 30 record. The log is one input to those, owned by you. |
 | Masked prompts lower what the provider receives. | That the provider receives no personal data, or that transfers outside the EU stop being transfers. |
 
 Further limits you should know about:
 
-- Tokens are stable per tenant. That is what keeps caches hitting, and it also means the provider can link a
-  person's requests over time. Rotating the tenant key changes every token.
+- By default tokens are stable per tenant. That is what keeps caches hitting, and it also means the provider can
+  link a person's requests over time. `token_scope: session` or `request` removes that linkability at the cost of
+  cache hits; rotating the key version changes every token.
 - If the same value appears in two formats in one request (`529.982.247-25` and `52998224725`), both get one token
   and both are restored in the first format seen.
 - PII inside JSON **numbers** in tool arguments is masked by turning the number into a token string. A strict tool
   schema may reject that.
 - Images, audio and files are not scanned. Base64 payloads pass through untouched.
 - A prompt-injected document can ask the model to write another value's token from the same request into a tool
-  call. maskwire restores any token issued for the request.
+  call. By default maskwire restores any token issued for the request; `tool_restore` limits which entity types are
+  restored inside tool-call arguments.
 - `observe` mode forwards the original body. Use it to measure before you enforce, never as protection.
 
 ## Architecture
