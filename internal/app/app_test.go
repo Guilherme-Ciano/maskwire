@@ -67,6 +67,10 @@ func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
 		{Name: "openai", Path: chatPath, Upstream: h.mock.URL, Codec: "openai"},
 		{Name: "anthropic", Path: "/v1/messages", Upstream: h.mock.URL, Codec: "anthropic"},
 		{Name: "direct", Path: "/direct" + chatPath, Upstream: h.mock.URL + chatPath, Codec: "openai"},
+		{Name: "embeddings", Path: "/v1/embeddings", Upstream: h.mock.URL, Codec: "openai-embeddings"},
+		{Name: "count", Path: "/v1/messages/count_tokens", Upstream: h.mock.URL, Codec: "anthropic"},
+		{Name: "models", Path: "/v1/models", Upstream: h.mock.URL, Codec: "passthrough"},
+		{Name: "responses", Path: "/v1/responses", Upstream: h.mock.URL, Codec: "openai-responses"},
 		{Name: "cache", Path: "/cache" + chatPath, Upstream: h.cache.URL, Codec: "openai", SynthesizeStream: true},
 	}
 	cfg.Tenants = []config.Tenant{{
@@ -224,6 +228,131 @@ func TestUpstreamPathOverride(t *testing.T) {
 	if r.status != http.StatusOK || !strings.Contains(r.body, "I received: "+prompt) {
 		t.Fatalf("status %d body %s", r.status, r.body)
 	}
+}
+
+func TestEmbeddingsAreMasked(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	r := h.post("/v1/embeddings", mustJSON(t, map[string]any{
+		"model": "text-embedding-3-small",
+		"input": []string{prompt, "second " + prompt},
+	}), nil)
+	if r.status != http.StatusOK || !strings.Contains(r.body, `"embedding"`) {
+		t.Fatalf("status %d body %.200s", r.status, r.body)
+	}
+	if saw := h.upstreamSaw(false); !strings.Contains(saw, "[EMAIL_") {
+		t.Fatalf("embeddings input not masked: %s", saw)
+	}
+}
+
+func TestCountTokensIsMasked(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	body := `{"model":"claude-x","messages":[{"role":"user","content":` + mustJSON(t, prompt) + `}]}`
+	r := h.post("/v1/messages/count_tokens", body, nil)
+	if r.status != http.StatusOK || !strings.Contains(r.body, "input_tokens") {
+		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+	h.upstreamSaw(false)
+}
+
+func TestModelsPassthroughNeedsTenantKey(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	r := h.do(http.MethodGet, h.proxy.URL+"/v1/models", "", map[string]string{keyHeader: tenantKey})
+	if r.status != http.StatusOK || !strings.Contains(r.body, `"mock-1"`) {
+		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+	if r := h.do(http.MethodGet, h.proxy.URL+"/v1/models", "", nil); r.status != http.StatusUnauthorized {
+		t.Fatalf("models without key: status %d", r.status)
+	}
+	if r := h.post("/v1/models", "{}", nil); r.status == http.StatusOK {
+		t.Fatal("passthrough route must not accept POST")
+	}
+}
+
+type responsesStreamEvent struct {
+	Type      string `json:"type"`
+	Delta     string `json:"delta"`
+	Text      string `json:"text"`
+	Arguments string `json:"arguments"`
+	Response  *struct {
+		Output []struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			Arguments string `json:"arguments"`
+		} `json:"output"`
+	} `json:"response"`
+}
+
+func TestResponsesAPI(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	body := mustJSON(t, map[string]any{
+		"model":        "gpt-5-mini",
+		"instructions": "Reply to ana.silva@empresa.com.br",
+		"tools": []any{
+			map[string]any{"type": "function", "name": "echo", "parameters": map[string]any{"type": "object"}},
+		},
+		"input": []any{
+			map[string]any{
+				"type": "function_call", "call_id": "c0", "name": "lookup",
+				"arguments": `{"cpf":11144477735,"mail":"ana.silva@empresa.com.br"}`,
+			},
+			map[string]any{"role": "user", "content": []any{map[string]string{"type": "input_text", "text": prompt}}},
+		},
+	})
+	r := h.post("/v1/responses", body, nil)
+	q := mustJSON(t, prompt)
+	if r.status != http.StatusOK || !strings.Contains(r.body, "I received: "+q[1:len(q)-1]) ||
+		!strings.Contains(r.body, `ana.silva@empresa.com.br`) {
+		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+	h.upstreamSaw(false)
+	if saw := h.upstreamSaw(false); strings.Contains(saw, "11144477735") {
+		t.Fatalf("numeric CPF in function_call arguments reached the upstream: %s", saw)
+	}
+	r = h.post(
+		"/v1/responses",
+		strings.Replace(body, `"model":"gpt-5-mini"`, `"model":"gpt-5-mini","stream":true`, 1),
+		nil,
+	)
+	var text, args strings.Builder
+	var doneText, completed string
+	sc := bufio.NewScanner(strings.NewReader(r.body))
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var ev responsesStreamEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			t.Fatalf("bad event %q: %v", data, err)
+		}
+		switch ev.Type {
+		case "response.output_text.delta":
+			text.WriteString(ev.Delta)
+		case "response.function_call_arguments.delta":
+			args.WriteString(ev.Delta)
+		case "response.output_text.done":
+			doneText = ev.Text
+		case "response.completed":
+			completed = ev.Response.Output[0].Content[0].Text + "|" + ev.Response.Output[1].Arguments
+		}
+	}
+	want := "I received: " + prompt
+	if text.String() != want || doneText != want {
+		t.Fatalf("stream text %q done %q", text.String(), doneText)
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(args.String()), &parsed); err != nil || parsed["text"] != prompt {
+		t.Fatalf("stream args %q (%v)", args.String(), err)
+	}
+	if !strings.HasPrefix(completed, want+"|") || !strings.Contains(completed, "ana.silva@empresa.com.br") {
+		t.Fatalf("completed event not restored: %q", completed)
+	}
+	h.upstreamSaw(false)
 }
 
 func TestOpenAIStreaming(t *testing.T) {

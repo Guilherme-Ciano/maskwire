@@ -98,3 +98,75 @@ func (anthropicCodec) NewStreamBody(src io.ReadCloser, set restore.Set, o Stream
 func (anthropicCodec) Synthesize(dst, body []byte) ([]byte, error) {
 	return anthropic.Synthesize(dst, body)
 }
+
+type embeddingsCodec struct {
+	c *openai.Codec
+}
+
+func NewEmbeddingsCodec() Codec {
+	return embeddingsCodec{c: openai.New()}
+}
+
+func (embeddingsCodec) Name() string {
+	return "openai-embeddings"
+}
+
+func (embeddingsCodec) ParseMeta(body []byte) (Meta, error) {
+	m, err := openai.ParseMeta(body)
+	m.Stream, m.Logprobs = false, false
+	return m, err
+}
+
+func (e embeddingsCodec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
+	return e.c.MaskEmbeddings(dst, body, m)
+}
+
+func (embeddingsCodec) RestoreBody(dst, body []byte, _ restore.Set, _ restore.Options) ([]byte, restore.Stats, error) {
+	return append(dst, body...), restore.Stats{}, nil
+}
+
+func (embeddingsCodec) NewStreamBody(src io.ReadCloser, _ restore.Set, _ StreamOptions) StreamBody {
+	return openai.PassStream(src)
+}
+
+func (embeddingsCodec) Synthesize(dst, body []byte) ([]byte, error) {
+	return append(dst, body...), nil
+}
+
+type responsesCodec struct {
+	c *openai.Codec
+}
+
+func NewResponsesCodec() Codec {
+	return responsesCodec{c: openai.New()}
+}
+
+func (responsesCodec) Name() string {
+	return "openai-responses"
+}
+
+func (responsesCodec) ParseMeta(body []byte) (Meta, error) {
+	m, err := openai.ParseMeta(body)
+	m.Logprobs = false
+	return m, err
+}
+
+func (r responsesCodec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
+	return r.c.MaskResponses(dst, body, m)
+}
+
+func (r responsesCodec) RestoreBody(
+	dst, body []byte,
+	set restore.Set,
+	o restore.Options,
+) ([]byte, restore.Stats, error) {
+	return r.c.RestoreResponses(dst, body, set, o)
+}
+
+func (r responsesCodec) NewStreamBody(src io.ReadCloser, set restore.Set, o StreamOptions) StreamBody {
+	return r.c.NewResponsesStream(src, set, o)
+}
+
+func (responsesCodec) Synthesize(dst, body []byte) ([]byte, error) {
+	return openai.SynthesizeResponses(dst, body)
+}

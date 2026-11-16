@@ -17,6 +17,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -111,6 +112,16 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	for i := range s.routes {
 		rt := &s.routes[i]
+		if rt.Codec == nil {
+			h := s.recoverer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				s.passthrough(w, r, rt)
+			}))
+			mux.Handle("GET "+rt.Path, h)
+			if !strings.HasSuffix(rt.Path, "/") {
+				mux.Handle("GET "+rt.Path+"/", h)
+			}
+			continue
+		}
 		mux.Handle("POST "+rt.Path, s.recoverer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			s.proxy(w, r, rt)
 		})))
@@ -147,6 +158,35 @@ func (s *Server) handlePanic(w *statusWriter, r *http.Request) {
 	}
 	s.log.ErrorContext(r.Context(), "handler panic", slog.String("panic_type", fmt.Sprintf("%T", v)))
 	writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
+}
+
+func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt *Route) {
+	tenant, err := s.authenticate(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		return
+	}
+	if r.ContentLength > 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "passthrough routes do not accept a request body")
+		return
+	}
+	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+	rp := &httputil.ReverseProxy{
+		Transport: s.transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(rt.Upstream)
+			pr.Out.Header.Del(s.opts.TenantHeader)
+			pr.Out.Body = http.NoBody
+			pr.Out.ContentLength = 0
+		},
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			s.upstreamError(w, req, &exchange{route: rt}, err)
+		},
+	}
+	defer func() {
+		s.metrics.Requests.WithLabelValues(tenant.Mask.ID, rt.Name, strconv.Itoa(sw.status)).Inc()
+	}()
+	rp.ServeHTTP(sw, r)
 }
 
 func (s *Server) authenticate(r *http.Request) (*Tenant, error) {

@@ -72,8 +72,22 @@ func TestMaskRequestLeavesProtectedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(out) != body {
-		t.Fatalf("protected fields changed:\n%s\n%s", body, out)
+	want := strings.Replace(body, `"enum":["52998224725"]`, `"enum":["[CPF_1S1AAT]"]`, 1)
+	if string(out) != want {
+		t.Fatalf("only the enum value may change:\n%s\n%s", want, out)
+	}
+}
+
+func TestStopSequencesAndSchemaTextMasked(t *testing.T) {
+	t.Parallel()
+	body := `{"messages":[],"stop_sequences":["ana.souza@correio.pt"],"tools":[{"name":"x","input_schema":` +
+		`{"type":"object","properties":{"to":{"type":"string","description":"ana.souza@correio.pt","pattern":"^.+@.+$"}}}}]}`
+	out, err := New().MaskRequest(nil, []byte(body), session(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "ana.souza@correio.pt") || !strings.Contains(string(out), `"pattern":"^.+@.+$"`) {
+		t.Fatalf("got %s", out)
 	}
 }
 
@@ -252,5 +266,30 @@ func TestRestoreBodyAndSynthesize(t *testing.T) {
 	}
 	if !strings.Contains(string(sse), "event: message_stop") {
 		t.Fatal("missing message_stop")
+	}
+	for _, want := range []string{`"id":"t"`, `"name":"x"`, `"id":"m"`, `"model":"x"`, `"stop_reason":"end_turn"`} {
+		if !strings.Contains(string(sse), want) {
+			t.Fatalf("synthesized stream lost %s:\n%s", want, sse)
+		}
+	}
+}
+
+func TestStreamPreservesUnknownFields(t *testing.T) {
+	t.Parallel()
+	s := session(t)
+	tok := masked(t, s, "ana.souza@correio.pt")
+	in := "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi " + tok + "\",\"extra_field\":7},\"trace\":\"abc\"}\n\n"
+	out, err := io.ReadAll(NewStreamBody(io.NopCloser(strings.NewReader(in)), s, codec.StreamOptions{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"text":"Hi ana.souza@correio.pt"`, `"extra_field":7`, `"trace":"abc"`} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("missing %s in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(string(out), "Extra") {
+		t.Fatalf("leaked Go field name:\n%s", out)
 	}
 }

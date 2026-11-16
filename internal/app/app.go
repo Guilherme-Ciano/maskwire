@@ -174,6 +174,12 @@ func buildRoutes(cfg config.Config) ([]httpapi.Route, error) {
 			c = httpapi.NewOpenAICodec()
 		case "anthropic":
 			c = httpapi.NewAnthropicCodec()
+		case "openai-responses":
+			c = httpapi.NewResponsesCodec()
+		case "openai-embeddings":
+			c = httpapi.NewEmbeddingsCodec()
+		case "passthrough":
+			c = nil
 		default:
 			return nil, fmt.Errorf("route %s: %w %q", r.Name, ErrUnknownCodec, r.Codec)
 		}

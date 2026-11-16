@@ -39,7 +39,7 @@ const (
 
 func skipTop(name []byte) bool {
 	switch string(name) {
-	case "model", "response_format", "tool_choice", "parallel_tool_calls", "reasoning_effort", "service_tier",
+	case "model", "tool_choice", "parallel_tool_calls", "reasoning_effort", "service_tier",
 		"modalities", "logit_bias", "stream_options", "audio", "function_call", "verbosity":
 		return true
 	}
@@ -64,11 +64,22 @@ func skipLeaf(name []byte) bool {
 	return false
 }
 
-func toolSchema(path []jsonx.Frame) bool {
-	if len(path) < 2 || (!path[0].Is("tools") && !path[0].Is("functions")) {
-		return false
+func schemaDecision(path []jsonx.Frame) (decided, mask bool) {
+	switch {
+	case path[0].Is("response_format"):
+		if root := codec.SchemaRoot(path, "schema"); root > 0 {
+			return true, codec.SchemaText(path, root)
+		}
+		return true, path[len(path)-1].Is("description")
+	case path[0].Is("tools") || path[0].Is("functions"):
+		if root := codec.SchemaRoot(path, "parameters"); root > 0 {
+			return true, codec.SchemaText(path, root)
+		}
+		if path[len(path)-1].Is("name") {
+			return true, false
+		}
 	}
-	return jsonx.Under(path, "parameters") || path[len(path)-1].Is("name")
+	return false, false
 }
 
 func argumentsLeaf(path []jsonx.Frame) bool {
@@ -87,8 +98,14 @@ func requestTarget(path []jsonx.Frame, raw []byte) (string, bool) {
 		return "", false
 	}
 	leaf := path[len(path)-1]
+	if decided, mask := schemaDecision(path); decided {
+		if mask {
+			return kindText, true
+		}
+		return "", false
+	}
 	switch {
-	case skipTop(path[0].Name), toolSchema(path), functionName(path), jsonx.LooksBase64(raw):
+	case skipTop(path[0].Name), functionName(path), jsonx.LooksBase64(raw):
 		return "", false
 	case !leaf.Array && skipLeaf(leaf.Name):
 		return "", false

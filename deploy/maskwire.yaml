@@ -25,6 +25,22 @@ routes:
     path: /v1/messages
     upstream: http://mockllm:9000
     codec: anthropic
+  - name: anthropic-count-tokens
+    path: /v1/messages/count_tokens
+    upstream: http://mockllm:9000
+    codec: anthropic
+  - name: openai-responses
+    path: /v1/responses
+    upstream: http://mockllm:9000
+    codec: openai-responses
+  - name: openai-embeddings
+    path: /v1/embeddings
+    upstream: http://mockllm:9000
+    codec: openai-embeddings
+  - name: models
+    path: /v1/models
+    upstream: http://mockllm:9000
+    codec: passthrough
 tenants:
   - id: demo
     key_sha256: c48a01f49fd0f2cc404bc3cbbc80e91457a3d41bb429a695243de4c61794155c

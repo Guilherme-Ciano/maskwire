@@ -37,8 +37,7 @@ func skipTop(name []byte) bool {
 		"service_tier",
 		"container",
 		"mcp_servers",
-		"output_format",
-		"stop_sequences":
+		"output_format":
 		return true
 	}
 	return false
@@ -57,7 +56,13 @@ func underInput(path []jsonx.Frame) bool {
 }
 
 func toolDefinition(path []jsonx.Frame) bool {
-	return len(path) >= 2 && path[0].Is("tools") && (jsonx.Under(path, "input_schema") || path[len(path)-1].Is("name"))
+	if len(path) < 2 || !path[0].Is("tools") {
+		return false
+	}
+	if root := codec.SchemaRoot(path, "input_schema"); root > 0 {
+		return !codec.SchemaText(path, root)
+	}
+	return path[len(path)-1].Is("name")
 }
 
 func toolUseName(path []jsonx.Frame) bool {
@@ -141,14 +146,14 @@ type message struct {
 	StopReason   jsontext.Value `json:"stop_reason,omitzero"`
 	StopSequence jsontext.Value `json:"stop_sequence,omitzero"`
 	Usage        jsontext.Value `json:"usage,omitzero"`
-	Extra        jsontext.Value `json:",unknown"`
+	Extra        jsontext.Value `json:",embed"`
 }
 
 type block struct {
 	Type  string         `json:"type"`
 	Text  *string        `json:"text,omitzero"`
 	Input jsontext.Value `json:"input,omitzero"`
-	Extra jsontext.Value `json:",unknown"`
+	Extra jsontext.Value `json:",embed"`
 }
 
 const (

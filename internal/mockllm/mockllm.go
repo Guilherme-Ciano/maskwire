@@ -26,6 +26,7 @@ const (
 	echoTool     = "echo"
 	defaultModel = "mock-1"
 	typeText     = "text"
+	callID       = "call_mock"
 )
 
 type Options struct {
@@ -61,7 +62,10 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/chat/completions", s.chat)
 	mux.HandleFunc("POST /v1/messages", s.messages)
+	mux.HandleFunc("POST /v1/responses", s.responses)
 	mux.HandleFunc("POST /v1/embeddings", s.embeddings)
+	mux.HandleFunc("POST /v1/messages/count_tokens", s.countTokens)
+	mux.HandleFunc("GET /v1/models", s.models)
 	mux.HandleFunc("GET /last", s.lastBody)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		s.write(w, []byte("ok\n"))
@@ -274,7 +278,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if toolArgs != "" {
 		msg.Content = nil
 		msg.ToolCalls = []toolCall{
-			{ID: "call_mock", Type: "function", Function: &function{Name: echoTool, Arguments: new(toolArgs)}},
+			{ID: callID, Type: "function", Function: &function{Name: echoTool, Arguments: new(toolArgs)}},
 		}
 		finish = "tool_calls"
 	}
@@ -335,7 +339,7 @@ func (s *Server) streamChat(w http.ResponseWriter, r *http.Request, model, reply
 	if toolArgs != "" {
 		finish = "tool_calls"
 		out.send("", chunk(&delta{ToolCalls: []toolCall{{
-			Index: new(0), ID: "call_mock", Type: "function", Function: &function{Name: echoTool, Arguments: new("")},
+			Index: new(0), ID: callID, Type: "function", Function: &function{Name: echoTool, Arguments: new("")},
 		}}}, nil))
 		for _, c := range s.chunks(toolArgs) {
 			if r.Context().Err() != nil {
@@ -432,7 +436,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 		s.writeJSON(w, http.StatusOK, anthMessage{
-			ID: "msg_mock", Type: "message", Role: roleAsst, Model: req.Model, Content: content,
+			ID: msgID, Type: itemMessage, Role: roleAsst, Model: req.Model, Content: content,
 			StopReason: new("end_turn"), Usage: &anthUsage{Input: len(body) / 4, Output: len(reply) / 4},
 		})
 		return
@@ -450,7 +454,7 @@ func (s *Server) streamMessages(
 ) {
 	out := s.newSSE(w)
 	out.send("message_start", anthEvent{Type: "message_start", Message: &anthMessage{
-		ID: "msg_mock", Type: "message", Role: roleAsst, Model: model, Content: []block{},
+		ID: msgID, Type: itemMessage, Role: roleAsst, Model: model, Content: []block{},
 		Usage: &anthUsage{Input: bodyLen / 4, Output: 1},
 	}})
 	out.send(
@@ -571,8 +575,35 @@ func (s *Server) Embed(text string) []float64 {
 	return vec
 }
 
+type modelList struct {
+	Object string      `json:"object"`
+	Data   []modelInfo `json:"data"`
+}
+
+type modelInfo struct {
+	ID     string `json:"id"`
+	Object string `json:"object"`
+}
+
+func (s *Server) models(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, modelList{Object: "list", Data: []modelInfo{{ID: defaultModel, Object: "model"}}})
+}
+
+type tokenCount struct {
+	InputTokens int `json:"input_tokens"`
+}
+
+func (s *Server) countTokens(w http.ResponseWriter, r *http.Request) {
+	body, err := s.record(r)
+	if err != nil {
+		s.badRequest(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, tokenCount{InputTokens: len(body) / 4})
+}
+
 func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	body, err := s.record(r)
 	if err != nil {
 		s.badRequest(w, err)
 		return

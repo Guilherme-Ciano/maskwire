@@ -46,7 +46,26 @@ func TestRequestStructureIsPreserved(t *testing.T) {
 		`{"url":"data:image/png;base64,QUJDREVG52998224725"}}]}],"tools":[{"type":"function","function":` +
 		`{"name":"send_mail_52998224725","parameters":{"type":"object","properties":{"to":{"type":"string",` +
 		`"enum":["52998224725"]}}}}}],"response_format":{"type":"json_schema"},"tool_choice":"auto"}`
-	if out := maskBody(t, body); out != body {
-		t.Fatalf("structural fields must not change:\n%s\n%s", body, out)
+	want := strings.Replace(body, `"enum":["52998224725"]`, `"enum":["[CPF_TCF1AS]"]`, 1)
+	if out := maskBody(t, body); out != want {
+		t.Fatalf("only the enum value may change:\n%s\n%s", want, out)
+	}
+}
+
+func TestSchemaFreeTextIsMasked(t *testing.T) {
+	t.Parallel()
+	body := `{"messages":[],"stop":["ana.souza@correio.pt"],"tools":[{"type":"function","function":{"name":"x","parameters":` +
+		`{"type":"object","description":"for ana.souza@correio.pt","properties":{"to":{"type":"string","pattern":"^.+@.+$",` +
+		`"title":"ana.souza@correio.pt","default":"ana.souza@correio.pt","examples":["ana.souza@correio.pt"]}}}}}],` +
+		`"response_format":{"type":"json_schema","json_schema":{"name":"r","description":"ana.souza@correio.pt",` +
+		`"schema":{"type":"object","properties":{"m":{"const":"ana.souza@correio.pt","format":"email"}}}}}}`
+	out := maskBody(t, body)
+	if strings.Contains(out, "ana.souza@correio.pt") {
+		t.Fatalf("schema free text leaked: %s", out)
+	}
+	for _, keep := range []string{`"pattern":"^.+@.+$"`, `"format":"email"`, `"name":"x"`, `"name":"r"`, `"type":"string"`} {
+		if !strings.Contains(out, keep) {
+			t.Fatalf("schema structure changed, missing %s: %s", keep, out)
+		}
 	}
 }
