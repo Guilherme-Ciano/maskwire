@@ -1,0 +1,44 @@
+name: benchdiff
+on:
+  pull_request:
+    paths: ["**.go", "go.mod", "go.sum"]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  benchdiff:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, check-latest: true }
+      - name: Benchmark the pull request
+        run: go test -run='^$' -bench=. -benchmem -count=6 -cpu=1 ./internal/... > /tmp/new.txt
+      - name: Benchmark the base branch
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add /tmp/base "$BASE"
+          cd /tmp/base && go test -run='^$' -bench=. -benchmem -count=6 -cpu=1 ./internal/... > /tmp/old.txt
+      - name: Compare with benchstat
+        run: |
+          {
+            echo '## Benchmark comparison (base vs pull request)'
+            echo
+            echo 'Shared CI runners are noisy: only rows benchstat marks with a p-value below 0.05 mean anything,'
+            echo 'and this job never blocks the merge.'
+            echo
+            echo '```'
+            go tool -modfile=tools/go.mod benchstat /tmp/old.txt /tmp/new.txt
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchdiff
+          path: |
+            /tmp/old.txt
+            /tmp/new.txt

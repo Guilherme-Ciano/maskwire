@@ -34,3 +34,5 @@ Names, small functions and tests carry the intent; design rationale goes in `doc
 
 Run `make bench` on a quiet machine and compare with benchstat
 (`go tool -modfile=tools/go.mod benchstat old.txt new.txt`). Only cite differences benchstat marks as significant.
+Pull requests that touch Go code also get a non-blocking `benchdiff` job that benchmarks the base and the head on
+the same runner and posts the benchstat table in the job summary.
