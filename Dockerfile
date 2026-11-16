@@ -3,7 +3,8 @@ FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
+COPY cmd ./cmd
+COPY internal ./internal
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
