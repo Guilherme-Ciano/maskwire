@@ -170,13 +170,15 @@ func AppendCanonical(dst []byte, t entity.Type, raw []byte) []byte {
 		for _, c := range raw {
 			dst = append(dst, lower(c))
 		}
-	case entity.Phone, entity.CPF, entity.PTNIF, entity.DESteuerID, entity.CreditCard:
+	case entity.Phone, entity.CPF, entity.PTNIF, entity.DESteuerID, entity.CreditCard, entity.NLBSN, entity.PLPESEL,
+		entity.BENN, entity.ATSVNR, entity.SEPNR, entity.BRPIS:
 		for _, c := range raw {
 			if isDigit(c) {
 				dst = append(dst, c)
 			}
 		}
-	case entity.CNPJ, entity.ESDNI, entity.ESNIE, entity.FRNIR, entity.ITCF, entity.IBAN:
+	case entity.CNPJ, entity.ESDNI, entity.ESNIE, entity.FRNIR, entity.ITCF, entity.IBAN, entity.FIHETU,
+		entity.IEPPSN, entity.UKNINO:
 		for _, c := range raw {
 			c = upper(c)
 			if isDigit(c) || (c >= 'A' && c <= 'Z') {

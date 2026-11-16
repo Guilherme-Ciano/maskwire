@@ -18,6 +18,15 @@ const (
 	ITCF
 	IBAN
 	CreditCard
+	NLBSN
+	PLPESEL
+	BENN
+	ATSVNR
+	SEPNR
+	FIHETU
+	IEPPSN
+	UKNINO
+	BRPIS
 	typeCount
 )
 
@@ -63,6 +72,24 @@ func (t Type) Label() string {
 		return nameIban
 	case CreditCard:
 		return "CARD"
+	case NLBSN:
+		return "BSN"
+	case PLPESEL:
+		return "PESEL"
+	case BENN:
+		return "NN"
+	case ATSVNR:
+		return "SVNR"
+	case SEPNR:
+		return "PNR"
+	case FIHETU:
+		return "HETU"
+	case IEPPSN:
+		return "PPSN"
+	case UKNINO:
+		return "NINO"
+	case BRPIS:
+		return "PIS"
 	case Unknown, typeCount:
 		return unknownName
 	}
@@ -97,6 +124,24 @@ func (t Type) LabelLower() string {
 		return "iban"
 	case CreditCard:
 		return "card"
+	case NLBSN:
+		return "bsn"
+	case PLPESEL:
+		return "pesel"
+	case BENN:
+		return "nn"
+	case ATSVNR:
+		return "svnr"
+	case SEPNR:
+		return "pnr"
+	case FIHETU:
+		return "hetu"
+	case IEPPSN:
+		return "ppsn"
+	case UKNINO:
+		return "nino"
+	case BRPIS:
+		return "pis"
 	case Unknown, typeCount:
 		return "unknown"
 	}
@@ -141,6 +186,24 @@ func LabelFold(b []byte) (Type, bool) {
 		return IBAN, true
 	case "CARD":
 		return CreditCard, true
+	case "BSN":
+		return NLBSN, true
+	case "PESEL":
+		return PLPESEL, true
+	case "NN":
+		return BENN, true
+	case "SVNR":
+		return ATSVNR, true
+	case "PNR":
+		return SEPNR, true
+	case "HETU":
+		return FIHETU, true
+	case "PPSN":
+		return IEPPSN, true
+	case "NINO":
+		return UKNINO, true
+	case "PIS":
+		return BRPIS, true
 	}
 	return Unknown, false
 }
@@ -177,6 +240,24 @@ func (t Type) String() string {
 		return nameIban
 	case CreditCard:
 		return "CREDIT_CARD"
+	case NLBSN:
+		return "NL_BSN"
+	case PLPESEL:
+		return "PL_PESEL"
+	case BENN:
+		return "BE_NN"
+	case ATSVNR:
+		return "AT_SVNR"
+	case SEPNR:
+		return "SE_PNR"
+	case FIHETU:
+		return "FI_HETU"
+	case IEPPSN:
+		return "IE_PPSN"
+	case UKNINO:
+		return "UK_NINO"
+	case BRPIS:
+		return "BR_PIS"
 	case Unknown, typeCount:
 		return unknownName
 	}
@@ -240,7 +321,8 @@ func (s Span) Overlaps(o Span) bool {
 
 func Priority(t Type) int {
 	switch t {
-	case CPF, CNPJ, PTNIF, ESDNI, ESNIE, FRNIR, ITCF, IBAN, CreditCard:
+	case CPF, CNPJ, PTNIF, ESDNI, ESNIE, FRNIR, ITCF, IBAN, CreditCard, NLBSN, PLPESEL, BENN, ATSVNR, SEPNR, FIHETU,
+		IEPPSN, UKNINO, BRPIS:
 		return 4
 	case Email:
 		return 3

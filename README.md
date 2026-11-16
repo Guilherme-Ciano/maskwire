@@ -203,9 +203,12 @@ example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.ya
 
 An upstream URL with a path is used as is; without a path, the incoming path is appended.
 
-Entity types for `by_type`: `EMAIL`, `PHONE`, `IP`, `IP_PRIVATE` (allowed by default), `CPF`, `CNPJ`, `PT_NIF`,
-`ES_DNI`, `ES_NIE`, `DE_STEUER_ID` (needs a keyword such as "Steuer-ID" nearby), `FR_NIR`, `IT_CF`, `IBAN`,
-`CREDIT_CARD`. Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
+Entity types for `by_type`: `EMAIL` (also `name (at) domain (dot) tld` forms), `PHONE`, `IP`, `IP_PRIVATE`
+(allowed by default), `CPF`, `CNPJ` (numeric and the new alphanumeric format), `PT_NIF`, `ES_DNI`, `ES_NIE`,
+`DE_STEUER_ID` (scores 0.5 without a keyword such as "Steuer-ID"), `FR_NIR`, `IT_CF`, `IBAN`, `CREDIT_CARD`,
+`FI_HETU`, `IE_PPSN`, `UK_NINO`, `SE_PNR` (detected from their format), and `NL_BSN`, `PL_PESEL`, `BE_NN`,
+`AT_SVNR`, `BR_PIS`, which are plain digit runs and so need their keyword nearby (`BSN`, `PESEL`, `rijksregister`,
+`SVNR`, `PIS`) or their official grouping, to keep random numbers from being masked. Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
 lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
 types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
 

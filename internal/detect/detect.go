@@ -12,13 +12,15 @@ import (
 )
 
 const (
-	maxGroups      = 48
-	maxCompact     = 34
-	defaultBudget  = 64
-	keywordWindow  = 48
-	bareIDScore    = 0.6
-	minPhoneDigits = 9
-	maxPhoneDigits = 15
+	maxGroups       = 48
+	maxCompact      = 34
+	defaultBudget   = 64
+	keywordWindow   = 48
+	bareIDScore     = 0.6
+	bareSteuerScore = 0.5
+	maxLowerGroup   = 4
+	minPhoneDigits  = 9
+	maxPhoneDigits  = 15
 )
 
 type Options struct {
@@ -84,6 +86,7 @@ func (d *Detector) Detect(dst []entity.Span, text []byte) []entity.Span {
 func (d *Detector) DetectWith(dst []entity.Span, text []byte, st *PhoneState) []entity.Span {
 	s := scanner{d: d, text: text, out: dst[:0], phoneState: *st}
 	s.emails()
+	s.obfuscatedEmails()
 	s.words()
 	s.flushRun()
 	*st = s.phoneState
@@ -185,8 +188,7 @@ func (s *scanner) words() {
 			continue
 		}
 		if isLower(c) {
-			if j := lowerRun(t, i); j > 0 {
-				s.flushRun()
+			if j := s.lowerWord(i); j > 0 {
 				i = j
 				continue
 			}
@@ -199,6 +201,19 @@ func (s *scanner) words() {
 		}
 		i = max(g.end, i+1)
 	}
+}
+
+func (s *scanner) lowerWord(i int) int {
+	j := lowerRun(s.text, i)
+	if j < 0 {
+		return -1
+	}
+	if j-i <= maxLowerGroup && s.ng > 0 && s.linked(s.groups[s.ng-1].end, i) {
+		s.addGroup(group{start: i, end: j, letters: j - i})
+	} else {
+		s.flushRun()
+	}
+	return j
 }
 
 func lowerRun(t []byte, i int) int {
@@ -293,7 +308,11 @@ func (s *scanner) flushRun() {
 		if end < 0 {
 			continue
 		}
-		s.emitScore(s.groups[i].start, s.groups[end].end, typ, s.idScore(typ, i, end))
+		score := s.idScore(typ, i, end)
+		if score < 0.9 && s.phoneShaped(i) {
+			continue
+		}
+		s.emitScore(s.groups[i].start, s.groups[end].end, typ, score)
 		for k := i; k <= end; k++ {
 			claimed[k] = true
 		}
@@ -302,6 +321,14 @@ func (s *scanner) flushRun() {
 	if s.d.phone {
 		s.phones(n, &claimed)
 	}
+}
+
+func (s *scanner) phoneShaped(i int) bool {
+	start := s.groups[i].start
+	if start > 0 && (s.text[start-1] == '+' || s.text[start-1] == '(') {
+		return true
+	}
+	return s.context(start, phoneWords()...)
 }
 
 func (s *scanner) mayStartAlnum(i int) bool {
@@ -331,44 +358,138 @@ func (s *scanner) bestWindow(i, n int) (int, entity.Type) {
 				return j, t
 			}
 		}
-		if t := s.classify(buf[:k], digitsOnly, i); t != entity.Unknown {
+		if t := s.classify(buf[:k], digitsOnly, i, j); t != entity.Unknown {
 			best, bestType = j, t
 		}
 	}
 	return best, bestType
 }
 
-func (s *scanner) classify(b []byte, digitsOnly bool, first int) entity.Type {
+func (s *scanner) classify(b []byte, digitsOnly bool, first, last int) entity.Type {
 	if digitsOnly {
-		return s.classifyDigits(b, first)
+		return s.classifyDigits(b, first, last)
 	}
 	return classifyAlnum(b)
 }
 
-func (s *scanner) classifyDigits(b []byte, first int) entity.Type {
-	switch {
-	case len(b) == 9 && checksum.PTNIF(b):
-		return entity.PTNIF
-	case len(b) == 11 && checksum.CPF(b):
-		return entity.CPF
-	case len(b) == 11 && checksum.DESteuerID(b) && s.context(s.groups[first].start, idWords(entity.DESteuerID)...):
-		return entity.DESteuerID
-	case len(b) == 14 && checksum.CNPJ(b):
-		return entity.CNPJ
-	case len(b) == 15 && checksum.FRNIR(b):
-		return entity.FRNIR
-	case checksum.CreditCard(b):
+func (s *scanner) labelled(t entity.Type, first int) bool {
+	return s.context(s.groups[first].start, idWords(t)...)
+}
+
+func (s *scanner) groupLens(first, last int, lens ...int) bool {
+	if last-first+1 != len(lens) {
+		return false
+	}
+	for k, n := range lens {
+		if s.groups[first+k].digits != n {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *scanner) classifyDigits(b []byte, first, last int) entity.Type {
+	switch len(b) {
+	case 9:
+		if t := s.classify9(b, first); t != entity.Unknown {
+			return t
+		}
+	case 10:
+		if t := s.classify10(b, first, last); t != entity.Unknown {
+			return t
+		}
+	case 11:
+		if t := s.classify11(b, first, last); t != entity.Unknown {
+			return t
+		}
+	case 12:
+		if checksum.SEPNR(b) && (s.labelled(entity.SEPNR, first) || s.groupLens(first, last, 8, 4)) {
+			return entity.SEPNR
+		}
+	case 14:
+		if checksum.CNPJ(b) {
+			return entity.CNPJ
+		}
+	case 15:
+		if checksum.FRNIR(b) {
+			return entity.FRNIR
+		}
+	}
+	if checksum.CreditCard(b) {
 		return entity.CreditCard
 	}
 	return entity.Unknown
 }
 
+func (s *scanner) classify9(b []byte, first int) entity.Type {
+	switch {
+	case checksum.NLBSN(b) && s.labelled(entity.NLBSN, first):
+		return entity.NLBSN
+	case checksum.PTNIF(b):
+		return entity.PTNIF
+	}
+	return entity.Unknown
+}
+
+func (s *scanner) classify10(b []byte, first, last int) entity.Type {
+	switch {
+	case checksum.ATSVNR(b) && s.labelled(entity.ATSVNR, first):
+		return entity.ATSVNR
+	case checksum.SEPNR(b) && (s.labelled(entity.SEPNR, first) || s.groupLens(first, last, 6, 4)):
+		return entity.SEPNR
+	}
+	return entity.Unknown
+}
+
+func (s *scanner) classify11(b []byte, first, last int) entity.Type {
+	switch {
+	case checksum.PLPESEL(b) && s.labelled(entity.PLPESEL, first):
+		return entity.PLPESEL
+	case checksum.BENN(b) && (s.labelled(entity.BENN, first) || s.groupLens(first, last, 2, 2, 2, 3, 2)):
+		return entity.BENN
+	case checksum.BRPIS(b) && (s.labelled(entity.BRPIS, first) || s.groupLens(first, last, 3, 5, 2, 1)):
+		return entity.BRPIS
+	case checksum.DESteuerID(b) && s.labelled(entity.DESteuerID, first):
+		return entity.DESteuerID
+	case checksum.CPF(b):
+		return entity.CPF
+	case checksum.DESteuerID(b):
+		return entity.DESteuerID
+	}
+	return entity.Unknown
+}
+
+func hetuCentury(b []byte) bool {
+	if len(b) != 11 {
+		return false
+	}
+	switch b[6] {
+	case 'A', 'B', 'C', 'D', 'E', 'F', 'U', 'V', 'W', 'X', 'Y':
+	default:
+		return false
+	}
+	var buf [10]byte
+	copy(buf[:6], b[:6])
+	copy(buf[6:], b[7:])
+	return checksum.FIHETU(buf[:])
+}
+
 func classifyAlnum(b []byte) entity.Type {
 	switch {
+	case len(b) == 8 && checksum.IEPPSN(b):
+		return entity.IEPPSN
 	case len(b) == 9 && checksum.ESDNI(b):
 		return entity.ESDNI
 	case len(b) == 9 && checksum.ESNIE(b):
 		return entity.ESNIE
+	case len(b) == 9 && checksum.UKNINO(b):
+		return entity.UKNINO
+	case len(b) == 9 && checksum.IEPPSN(b):
+		return entity.IEPPSN
+	case len(b) == 10 && checksum.FIHETU(b):
+		return entity.FIHETU
+	case hetuCentury(b):
+		return entity.FIHETU
 	case len(b) == 14 && checksum.CNPJ(b):
 		return entity.CNPJ
 	case len(b) == 15 && checksum.FRNIR(b):
@@ -425,6 +546,24 @@ func idWords(t entity.Type) []string {
 		return []string{"card", "cart", "tarjeta", "karte", "visa", "master", "amex", "crédit", "credit", "pan"}
 	case entity.DESteuerID:
 		return []string{"steuer", "idnr", "tax id", "tin"}
+	case entity.NLBSN:
+		return []string{"bsn", "burgerservice", "sofi"}
+	case entity.PLPESEL:
+		return []string{"pesel"}
+	case entity.BENN:
+		return []string{"rijksregister", "registre national", "insz", "niss", "national number", "nn"}
+	case entity.ATSVNR:
+		return []string{"svnr", "sv-nr", "sv nr", "sozialversicherung", "versicherungsnummer"}
+	case entity.SEPNR:
+		return []string{"personnummer", "pnr", "personal identity number"}
+	case entity.FIHETU:
+		return []string{"hetu", "henkilötunnus", "henkilotunnus", "personal identity code"}
+	case entity.IEPPSN:
+		return []string{"ppsn", "pps"}
+	case entity.UKNINO:
+		return []string{"nino", "national insurance", "ni number"}
+	case entity.BRPIS:
+		return []string{"pis", "pasep", "nis", "nit"}
 	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.ESDNI, entity.ESNIE,
 		entity.ITCF, entity.IBAN:
 		return nil
@@ -441,16 +580,31 @@ func phoneWords() []string {
 
 func (s *scanner) idScore(t entity.Type, first, last int) float32 {
 	words := idWords(t)
-	if words == nil || t == entity.DESteuerID {
+	if words == nil {
 		return baseScore(t)
 	}
-	if s.context(s.groups[first].start, words...) {
+	keyword := s.context(s.groups[first].start, words...)
+	switch {
+	case keyword:
 		return 1
-	}
-	if last > first {
+	case t == entity.DESteuerID:
+		return bareSteuerScore
+	case distinctFormat(t) || last > first:
 		return 0.9
 	}
 	return bareIDScore
+}
+
+func distinctFormat(t entity.Type) bool {
+	switch t {
+	case entity.FIHETU, entity.IEPPSN, entity.UKNINO, entity.NLBSN, entity.PLPESEL, entity.BENN, entity.ATSVNR,
+		entity.SEPNR, entity.BRPIS:
+		return true
+	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.CPF, entity.CNPJ, entity.PTNIF,
+		entity.ESDNI, entity.ESNIE, entity.DESteuerID, entity.FRNIR, entity.ITCF, entity.IBAN, entity.CreditCard:
+		return false
+	}
+	return false
 }
 
 func (s *scanner) ipv4(i int) (entity.Type, bool) {
@@ -655,7 +809,8 @@ func baseScore(t entity.Type) float32 {
 	case entity.IP, entity.IPPrivate:
 		return 0.9
 	case entity.CPF, entity.CNPJ, entity.PTNIF, entity.ESDNI, entity.ESNIE, entity.DESteuerID,
-		entity.FRNIR, entity.ITCF, entity.IBAN, entity.CreditCard:
+		entity.FRNIR, entity.ITCF, entity.IBAN, entity.CreditCard, entity.NLBSN, entity.PLPESEL, entity.BENN,
+		entity.ATSVNR, entity.SEPNR, entity.FIHETU, entity.IEPPSN, entity.UKNINO, entity.BRPIS:
 		return 1
 	case entity.Unknown:
 		return 0
@@ -711,6 +866,100 @@ func (s *scanner) emailAt(at int) (lo, hi int, ok bool) {
 		return 0, 0, false
 	}
 	return lo, hi, true
+}
+
+func markerAt(t []byte, i int, word string) int {
+	if i >= len(t) || (t[i] != '(' && t[i] != '[') {
+		return 0
+	}
+	n := len(word) + 2
+	if i+n > len(t) {
+		return 0
+	}
+	closer := byte(')')
+	if t[i] == '[' {
+		closer = ']'
+	}
+	for k := range len(word) {
+		c := t[i+1+k]
+		if isUpper(c) {
+			c += 'a' - 'A'
+		}
+		if c != word[k] {
+			return 0
+		}
+	}
+	if t[i+n-1] != closer {
+		return 0
+	}
+	return n
+}
+
+func skipSpaces(t []byte, i, dir int) int {
+	for i >= 0 && i < len(t) && t[i] == ' ' {
+		i += dir
+	}
+	return i
+}
+
+func (s *scanner) obfuscatedEmails() {
+	for _, closer := range [...]byte{')', ']'} {
+		s.obfuscatedWith(closer)
+	}
+}
+
+func (s *scanner) obfuscatedWith(closer byte) {
+	t := s.text
+	for off := 0; off < len(t); {
+		c := bytes.IndexByte(t[off:], closer)
+		if c < 0 {
+			return
+		}
+		k := off + c - 3
+		off += c + 1
+		if k < 0 || markerAt(t, k, "at") == 0 {
+			continue
+		}
+		hi, ok := s.obfuscatedDomain(skipSpaces(t, k+4, 1))
+		lo := skipSpaces(t, k-1, -1) + 1
+		end := lo
+		for lo > 0 && emailLocal(t[lo-1]) && t[lo-1] < 0x80 {
+			lo--
+		}
+		if !ok || lo == end {
+			continue
+		}
+		s.emitScore(lo, hi, entity.Email, 0.9)
+		off = max(off, hi)
+	}
+}
+
+func (s *scanner) obfuscatedDomain(i int) (end int, ok bool) {
+	t := s.text
+	var labels, last int
+	for {
+		start := i
+		for i < len(t) && (isAlnum(t[i]) || t[i] == '-') {
+			i++
+		}
+		if i == start {
+			return 0, false
+		}
+		labels++
+		last = i - start
+		end = i
+		j := skipSpaces(t, i, 1)
+		if n := markerAt(t, j, "dot"); n > 0 {
+			i = skipSpaces(t, j+n, 1)
+			continue
+		}
+		if i < len(t) && t[i] == '.' && i+1 < len(t) && isAlnum(t[i+1]) {
+			i++
+			continue
+		}
+		break
+	}
+	return end, labels >= 2 && last >= 2
 }
 
 func validDomain(d []byte) bool {
