@@ -124,3 +124,23 @@ func TestAuditKeyDiffersFromTenantKeys(t *testing.T) {
 		t.Fatal("audit key must be stable")
 	}
 }
+
+func TestDerive(t *testing.T) {
+	kr, err := NewKeyring(bytes.Repeat([]byte{7}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := kr.Tenant("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a1, a2, b := base.Derive([]byte("a")), base.Derive([]byte("a")), base.Derive([]byte("b"))
+	canon := []byte("ana@x.pt")
+	if a1.Sum(entity.Email, canon) != a2.Sum(entity.Email, canon) {
+		t.Fatal("same scope gives different sums")
+	}
+	if a1.Sum(entity.Email, canon) == b.Sum(entity.Email, canon) ||
+		a1.Sum(entity.Email, canon) == base.Sum(entity.Email, canon) {
+		t.Fatal("scopes are not separated")
+	}
+}

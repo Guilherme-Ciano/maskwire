@@ -95,6 +95,7 @@ type entry struct {
 type Session struct {
 	eng      *Engine
 	tenant   *Tenant
+	key      *token.TenantKey
 	observe  bool
 	set      map[Suffix]int
 	entries  []entry
@@ -127,9 +128,14 @@ func (e *Engine) NewSession(t *Tenant) *Session {
 		s = &Session{eng: e, set: make(map[Suffix]int)}
 	}
 	s.tenant = t
+	s.key = t.Key
 	s.observe = t.Policy.Mode == policy.Observe
 	s.phones = e.det.NewPhoneState()
 	return s
+}
+
+func (s *Session) UseKey(k *token.TenantKey) {
+	s.key = k
 }
 
 func (s *Session) Counters() *Counters {
@@ -194,7 +200,7 @@ func (s *Session) MaskText(dst, src []byte) ([]byte, error) {
 
 func (s *Session) issue(dst []byte, t entity.Type, raw []byte) ([]byte, error) {
 	s.canon = token.AppendCanonical(s.canon[:0], t, raw)
-	sum := s.tenant.Key.Sum(t, s.canon)
+	sum := s.key.Sum(t, s.canon)
 	n := s.tenant.TokenLength
 	if n <= 0 {
 		n = token.DefaultLength

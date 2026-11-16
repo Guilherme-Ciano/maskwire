@@ -121,6 +121,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		auditor,
 		httpapi.Options{
 			TenantHeader:      cfg.Server.TenantHeader,
+			SessionHeader:     cfg.Server.SessionHeader,
 			DefaultTenant:     cfg.Server.DefaultTenant,
 			MaxBodyBytes:      cfg.Server.MaxBodyBytes,
 			StreamIdleTimeout: cfg.Server.StreamIdleTimeout,
@@ -162,6 +163,16 @@ func (a *App) ReloadTenants(cfg config.Config) error {
 	return nil
 }
 
+func scope(s string) httpapi.Scope {
+	switch s {
+	case "session":
+		return httpapi.ScopeSession
+	case "request":
+		return httpapi.ScopeRequest
+	}
+	return httpapi.ScopeTenant
+}
+
 func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, error) {
 	out := make([]*httpapi.Tenant, 0, len(cfg.Tenants))
 	for i := range cfg.Tenants {
@@ -192,6 +203,7 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 			Foreign:      foreign,
 			ToolWithhold: withhold,
 			Limit:        httpapi.NewLimiter(t.RateLimit.RPS, t.RateLimit.Burst),
+			Scope:        scope(t.TokenScope),
 			PromptHint:   t.PromptHint,
 			ResponseScan: t.ResponseScan != "off",
 		})

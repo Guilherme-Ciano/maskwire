@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -556,6 +557,45 @@ func TestReloadTenants(t *testing.T) {
 	}
 	if r := h.post(chatPath, chatBody(t, false), map[string]string{keyHeader: newKey}); r.status != http.StatusOK {
 		t.Fatalf("failed reload dropped tenants: %d", r.status)
+	}
+}
+
+var tokenRE = regexp.MustCompile(`\[[A-Z]+_[0-9A-Z]+\]`)
+
+func TestTokenScopes(t *testing.T) {
+	t.Parallel()
+	send := func(h *harness, session string) string {
+		hdr := map[string]string{}
+		if session != "" {
+			hdr["X-Maskwire-Session"] = session
+		}
+		r := h.post(chatPath, chatBody(t, false), hdr)
+		if r.status != http.StatusOK || !strings.Contains(r.body, "ana.silva@empresa.com.br") {
+			t.Fatalf("status %d body %s", r.status, r.body)
+		}
+		return strings.Join(tokenRE.FindAllString(h.upstreamSaw(false), -1), " ")
+	}
+	tenant := newHarness(t, nil)
+	if t1, t2 := send(tenant, ""), send(tenant, ""); t1 != t2 {
+		t.Fatalf("tenant scope tokens differ between requests:\n%s\n%s", t1, t2)
+	}
+	request := newHarness(t, func(c *config.Config) { c.Tenants[0].TokenScope = "request" })
+	if r1, r2 := send(request, "s1"), send(request, "s1"); r1 == r2 {
+		t.Fatal("request scope reused tokens")
+	}
+	session := newHarness(t, func(c *config.Config) { c.Tenants[0].TokenScope = "session" })
+	a, b := send(session, "conv-1"), send(session, "conv-1")
+	if a != b {
+		t.Fatal("session scope tokens differ within a session")
+	}
+	if send(session, "conv-2") == a {
+		t.Fatal("session scope tokens shared across sessions")
+	}
+	if n1, n2 := send(session, ""), send(session, ""); n1 == n2 {
+		t.Fatal("session scope without a session id must not reuse tokens")
+	}
+	if a == send(tenant, "") {
+		t.Fatal("session scope matches tenant tokens")
 	}
 }
 

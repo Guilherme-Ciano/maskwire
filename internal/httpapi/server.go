@@ -57,7 +57,16 @@ type Tenant struct {
 	PromptHint   bool
 	ResponseScan bool
 	Limit        *Limiter
+	Scope        Scope
 }
+
+type Scope uint8
+
+const (
+	ScopeTenant Scope = iota
+	ScopeSession
+	ScopeRequest
+)
 
 type Route struct {
 	Name       string
@@ -75,6 +84,7 @@ type Auditor interface {
 
 type Options struct {
 	TenantHeader      string
+	SessionHeader     string
 	DefaultTenant     string
 	MaxBodyBytes      int64
 	StreamIdleTimeout time.Duration
@@ -208,6 +218,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt *Route) 
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(rt.Upstream)
 			pr.Out.Header.Del(s.opts.TenantHeader)
+			pr.Out.Header.Del(s.opts.SessionHeader)
 			pr.Out.Body = http.NoBody
 			pr.Out.ContentLength = 0
 		},
@@ -305,7 +316,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", openai.ErrLogprobs)
 		return
 	}
-	x.session = s.engine.NewSession(tenant.Mask)
+	x.session = s.newSession(r, tenant)
 	defer x.session.Release()
 	masked, err := rt.Codec.MaskRequest(make([]byte, 0, len(body)+len(body)/4), body, x.session)
 	x.maskTime = time.Since(x.start)
@@ -366,6 +377,7 @@ func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 				pr.Out.URL.Path, pr.Out.URL.RawPath = p, ""
 			}
 			pr.Out.Header.Del(s.opts.TenantHeader)
+			pr.Out.Header.Del(s.opts.SessionHeader)
 			pr.Out.Header.Del("Content-Length")
 			pr.Out.Header.Del("Accept-Encoding")
 			pr.Out.Body = io.NopCloser(bytes.NewReader(x.masked))

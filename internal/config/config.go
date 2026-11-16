@@ -63,6 +63,7 @@ type Server struct {
 	ShutdownTimeout    time.Duration `koanf:"shutdown_timeout"`
 	MaxBodyBytes       int64         `koanf:"max_body_bytes"`
 	TenantHeader       string        `koanf:"tenant_header"`
+	SessionHeader      string        `koanf:"session_header"`
 	DefaultTenant      string        `koanf:"default_tenant"`
 	Pprof              bool          `koanf:"pprof"`
 }
@@ -117,6 +118,7 @@ type Tenant struct {
 	ResponseScan string          `koanf:"response_scan"`
 	Foreign      string          `koanf:"foreign_token"`
 	ToolRestore  []string        `koanf:"tool_restore"`
+	TokenScope   string          `koanf:"token_scope"`
 	RateLimit    RateLimit       `koanf:"rate_limit"`
 }
 
@@ -139,6 +141,7 @@ func Defaults() Config {
 			ShutdownTimeout:    20 * time.Second,
 			MaxBodyBytes:       4 << 20,
 			TenantHeader:       "X-Maskwire-Key",
+			SessionHeader:      "X-Maskwire-Session",
 		},
 		Keys:   Keys{Version: 1},
 		Audit:  Audit{Enabled: true, Dir: "audit", OnFull: "block", Buffer: 4096},
@@ -306,6 +309,11 @@ func (t Tenant) validate(i int, ids map[string]bool) []error {
 	}
 	if t.Foreign != "" && t.Foreign != "generic" && t.Foreign != "keep" {
 		errs = append(errs, fmt.Errorf("tenants[%d].foreign_token must be generic or keep", i))
+	}
+	switch t.TokenScope {
+	case "", "tenant", "session", "request":
+	default:
+		errs = append(errs, fmt.Errorf("tenants[%d].token_scope must be tenant, session or request", i))
 	}
 	if t.RateLimit.RPS < 0 || t.RateLimit.Burst < 0 {
 		errs = append(errs, fmt.Errorf("tenants[%d].rate_limit values must not be negative", i))
