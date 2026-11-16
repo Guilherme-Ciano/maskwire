@@ -84,8 +84,7 @@ type Server struct {
 	log       *slog.Logger
 	metrics   *telemetry.Metrics
 	engine    *mask.Engine
-	tenants   []*Tenant
-	byID      map[string]*Tenant
+	tenants   atomic.Pointer[tenantTable]
 	routes    []Route
 	transport http.RoundTripper
 	auditor   Auditor
@@ -97,12 +96,10 @@ func NewServer(log *slog.Logger, m *telemetry.Metrics, eng *mask.Engine, tenants
 	transport http.RoundTripper, auditor Auditor, o Options,
 ) *Server {
 	s := &Server{
-		log: log, metrics: m, engine: eng, tenants: tenants, routes: routes,
-		transport: transport, auditor: auditor, opts: o, byID: map[string]*Tenant{},
+		log: log, metrics: m, engine: eng, routes: routes,
+		transport: transport, auditor: auditor, opts: o,
 	}
-	for _, t := range tenants {
-		s.byID[t.Mask.ID] = t
-	}
+	s.SetTenants(tenants)
 	for i := range s.routes {
 		if s.routes[i].Codec != nil {
 			s.routes[i].proxy = s.routeProxy(&s.routes[i])
@@ -110,6 +107,26 @@ func NewServer(log *slog.Logger, m *telemetry.Metrics, eng *mask.Engine, tenants
 	}
 	s.ready.Store(true)
 	return s
+}
+
+type tenantTable struct {
+	list []*Tenant
+	byID map[string]*Tenant
+}
+
+func (s *Server) SetTenants(tenants []*Tenant) {
+	t := &tenantTable{list: tenants, byID: make(map[string]*Tenant, len(tenants))}
+	old := s.tenants.Load()
+	for _, n := range tenants {
+		t.byID[n.Mask.ID] = n
+		if old == nil {
+			continue
+		}
+		if prev, ok := old.byID[n.Mask.ID]; ok && prev.Limit.Same(n.Limit) {
+			n.Limit = prev.Limit
+		}
+	}
+	s.tenants.Store(t)
 }
 
 func (s *Server) SetReady(v bool) {
@@ -205,9 +222,10 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt *Route) 
 }
 
 func (s *Server) authenticate(r *http.Request) (*Tenant, error) {
+	table := s.tenants.Load()
 	key := r.Header.Get(s.opts.TenantHeader)
 	if key == "" {
-		if t, ok := s.byID[s.opts.DefaultTenant]; ok {
+		if t, ok := table.byID[s.opts.DefaultTenant]; ok {
 			return t, nil
 		}
 		return nil, ErrUnauthorized
@@ -217,7 +235,7 @@ func (s *Server) authenticate(r *http.Request) (*Tenant, error) {
 	}
 	sum := sha256.Sum256([]byte(key))
 	var found *Tenant
-	for _, t := range s.tenants {
+	for _, t := range table.list {
 		if subtle.ConstantTimeCompare(sum[:], t.KeyHash[:]) == 1 {
 			found = t
 		}

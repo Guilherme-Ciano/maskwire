@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"log/slog"
 	"maps"
@@ -525,6 +526,36 @@ func TestTenantRateLimit(t *testing.T) {
 	}
 	if !strings.Contains(r.body, "rate_limited") {
 		t.Fatalf("body %s", r.body)
+	}
+}
+
+func TestReloadTenants(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	const newKey = "mw-rotated-5d1e9a7c3b2f8e4d"
+	cfg := h.cfg
+	cfg.Tenants = []config.Tenant{{ID: "acme", KeySHA256: config.HashKey(newKey)}}
+	if err := h.app.ReloadTenants(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if r := h.post(chatPath, chatBody(t, false), nil); r.status != http.StatusUnauthorized {
+		t.Fatalf("old key after reload: %d", r.status)
+	}
+	if r := h.post(chatPath, chatBody(t, false), map[string]string{keyHeader: newKey}); r.status != http.StatusOK {
+		t.Fatalf("new key after reload: %d %s", r.status, r.body)
+	}
+	bad := cfg
+	bad.Tenants = []config.Tenant{{ID: "", KeySHA256: "zz"}}
+	if err := h.app.ReloadTenants(bad); err == nil {
+		t.Fatal("invalid reload accepted")
+	}
+	moved := cfg
+	moved.Server.DefaultTenant = "acme"
+	if err := h.app.ReloadTenants(moved); !errors.Is(err, ErrReloadDefaultTenant) {
+		t.Fatalf("default tenant change: %v", err)
+	}
+	if r := h.post(chatPath, chatBody(t, false), map[string]string{keyHeader: newKey}); r.status != http.StatusOK {
+		t.Fatalf("failed reload dropped tenants: %d", r.status)
 	}
 }
 

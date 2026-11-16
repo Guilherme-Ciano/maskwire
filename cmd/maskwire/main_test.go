@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/Guilherme-Ciano/maskwire/internal/app"
 	"github.com/Guilherme-Ciano/maskwire/internal/audit"
 	"github.com/Guilherme-Ciano/maskwire/internal/config"
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
@@ -108,5 +113,82 @@ func TestHealthcheckCommand(t *testing.T) {
 	defer down.Close()
 	if _, _, err := run(t, "", "healthcheck", "--url", down.URL); err == nil {
 		t.Fatal("503 must fail the health check")
+	}
+}
+
+const reloadYAML = `
+keys:
+  master_key: "` + "abababababababababababababababababababababababababababababababab" + `"
+audit:
+  enabled: false
+routes:
+  - name: chat
+    path: /v1/chat/completions
+    upstream: %q
+    codec: openai
+tenants:
+  - id: acme
+    key_sha256: %q
+`
+
+func TestSIGHUPReloadsTenants(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"choices":[]}`)); err != nil {
+			t.Errorf("upstream write: %v", err)
+		}
+	}))
+	defer upstream.Close()
+	const oldKey, newKey = "mw-before-reload-0000000001", "mw-after-reload-00000000002"
+	path := filepath.Join(t.TempDir(), "maskwire.yaml")
+	write := func(key string) {
+		body := fmt.Sprintf(reloadYAML, upstream.URL, config.HashKey(key))
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(oldKey)
+	cfg, err := config.Load(path, func() []string { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := app.New(cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	status := func(key string) int {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/v1/chat/completions",
+			strings.NewReader(`{"model":"m","messages":[]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Maskwire-Key", key)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	stop := watchReload(t.Context(), slog.New(slog.DiscardHandler), a, path)
+	defer stop()
+	if got := status(oldKey); got != http.StatusOK {
+		t.Fatalf("old key before reload: %d", got)
+	}
+	write(newKey)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for status(newKey) != http.StatusOK {
+		if time.Now().After(deadline) {
+			t.Fatal("new key not accepted after SIGHUP")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := status(oldKey); got != http.StatusUnauthorized {
+		t.Fatalf("old key after reload: %d", got)
 	}
 }

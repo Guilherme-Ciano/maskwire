@@ -28,12 +28,14 @@ import (
 )
 
 var (
-	ErrUnknownCodec = errors.New("unknown codec")
-	ErrKeyVersion   = errors.New("key version out of range")
+	ErrUnknownCodec        = errors.New("unknown codec")
+	ErrKeyVersion          = errors.New("key version out of range")
+	ErrReloadDefaultTenant = errors.New("server.default_tenant cannot change on reload")
 )
 
 type App struct {
 	cfg     config.Config
+	keyring *token.Keyring
 	log     *slog.Logger
 	metrics *telemetry.Metrics
 	api     *httpapi.Server
@@ -105,17 +107,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
 		DisableCompression:    false,
 	}
-	for i := range cfg.Tenants {
-		t := &cfg.Tenants[i]
-		if t.Mode == "observe" {
-			log.Warn("tenant in observe mode forwards raw personal data upstream", slog.String("tenant", t.ID))
-		}
-	}
-	if cfg.Server.DefaultTenant != "" {
-		log.Warn("default tenant accepts unauthenticated requests", slog.String("tenant", cfg.Server.DefaultTenant))
-	}
+	warnTenants(cfg, log)
 	cfg.Keys.MasterKey = ""
 	a.cfg = cfg
+	a.keyring = kr
 	a.api = httpapi.NewServer(
 		log,
 		metrics,
@@ -132,6 +127,39 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		},
 	)
 	return a, nil
+}
+
+func warnTenants(cfg config.Config, log *slog.Logger) {
+	for i := range cfg.Tenants {
+		t := &cfg.Tenants[i]
+		if t.Mode == "observe" {
+			log.Warn("tenant in observe mode forwards raw personal data upstream", slog.String("tenant", t.ID))
+		}
+	}
+	if cfg.Server.DefaultTenant != "" {
+		log.Warn("default tenant accepts unauthenticated requests", slog.String("tenant", cfg.Server.DefaultTenant))
+	}
+}
+
+func (a *App) ReloadTenants(cfg config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		a.metrics.Reloads.WithLabelValues("error").Inc()
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+	if cfg.Server.DefaultTenant != a.cfg.Server.DefaultTenant {
+		a.metrics.Reloads.WithLabelValues("error").Inc()
+		return ErrReloadDefaultTenant
+	}
+	tenants, err := buildTenants(cfg, a.keyring)
+	if err != nil {
+		a.metrics.Reloads.WithLabelValues("error").Inc()
+		return err
+	}
+	a.api.SetTenants(tenants)
+	a.metrics.Reloads.WithLabelValues("ok").Inc()
+	warnTenants(cfg, a.log)
+	a.log.Info("tenants reloaded", slog.Int("tenants", len(tenants)))
+	return nil
 }
 
 func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, error) {

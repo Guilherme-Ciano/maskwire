@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -85,11 +86,48 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stop := watchReload(cmd.Context(), log, a, configPath(path))
+			defer stop()
 			return a.Run(cmd.Context())
 		},
 	}
 	cmd.Flags().StringVar(&path, "config", "", "path to the YAML config file (or MASKWIRE_CONFIG)")
 	return cmd
+}
+
+func watchReload(ctx context.Context, log *slog.Logger, a *app.App, path string) func() {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-hup:
+				if !ok {
+					return
+				}
+				reload(log, a, path)
+			}
+		}
+	}()
+	return func() {
+		signal.Stop(hup)
+		close(hup)
+		<-done
+	}
+}
+
+func reload(log *slog.Logger, a *app.App, path string) {
+	cfg, err := config.Load(path, os.Environ)
+	if err == nil {
+		err = a.ReloadTenants(cfg)
+	}
+	if err != nil {
+		log.Error("tenant reload failed, keeping the previous tenants", slog.String("error", err.Error()))
+	}
 }
 
 func detectCmd() *cobra.Command {

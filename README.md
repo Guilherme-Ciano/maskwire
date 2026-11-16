@@ -214,6 +214,14 @@ Entity types for `by_type`: `EMAIL` (also `name (at) domain (dot) tld` forms), `
 lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
 types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
 
+### Reloading tenants
+
+`kill -HUP <pid>` (or `docker compose kill -s HUP maskwire`) re-reads the config file and replaces the tenant list:
+keys, policies, `tool_restore`, rate limits and the rest. Requests already in flight finish with the tenants they
+started with. Rate-limit state survives for tenants whose limits did not change. Routes, listeners, the master key
+and `server.default_tenant` need a restart. An invalid file is rejected and the previous tenants stay active; every
+attempt is counted in `maskwire_tenant_reloads_total{result}`.
+
 ## Metrics
 
 The admin listener serves Prometheus metrics. Labels carry tenant ids, route names and entity type names, never
@@ -231,6 +239,7 @@ values.
 | `maskwire_mask_duration_seconds` | route | time spent masking the request body |
 | `maskwire_overhead_seconds` | route, streaming | masking plus restoring, excluding time waiting on the upstream |
 | `maskwire_request_duration_seconds` | route, streaming | end-to-end duration including the upstream |
+| `maskwire_tenant_reloads_total` | result | SIGHUP tenant reloads, `ok` or `error` |
 | `maskwire_stream_holdback_bytes` | | largest hold-back per streamed response |
 | `maskwire_stream_events_total` | outcome | SSE events forwarded or dropped |
 | `maskwire_audit_events_total`, `maskwire_audit_dropped_total` | | audit records written and dropped |

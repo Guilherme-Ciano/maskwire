@@ -47,6 +47,7 @@ type Metrics struct {
 	MaskDuration   *prometheus.HistogramVec
 	RequestLatency *prometheus.HistogramVec
 	Overhead       *prometheus.HistogramVec
+	Reloads        *prometheus.CounterVec
 	Holdback       prometheus.Histogram
 	StreamEvents   *prometheus.CounterVec
 
@@ -116,6 +117,9 @@ func NewMetrics() *Metrics {
 			Help:    "Time maskwire spent masking and restoring a request, excluding time waiting on the upstream.",
 			Buckets: durationBuckets(), NativeHistogramBucketFactor: 1.1,
 		}, []string{labelRoute, labelStreaming}),
+		Reloads: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "maskwire_tenant_reloads_total", Help: "Tenant reloads triggered by SIGHUP, by result.",
+		}, []string{"result"}),
 		Holdback: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "maskwire_stream_holdback_bytes", Help: "Maximum bytes held back per streamed response.",
 			Buckets: []float64{0, 1, 2, 4, 8, 16, 24, 32},
@@ -129,7 +133,7 @@ func NewMetrics() *Metrics {
 		}, []string{"outcome"}),
 	}
 	reg.MustRegister(m.Requests, m.Detections, m.Blocked, m.ForeignTokens, m.Restores, m.ToolWithheld, m.MaskDuration,
-		m.RequestLatency, m.Overhead, m.Holdback, m.StreamEvents, m.ResponseDetections)
+		m.RequestLatency, m.Overhead, m.Reloads, m.Holdback, m.StreamEvents, m.ResponseDetections)
 	return m
 }
 

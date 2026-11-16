@@ -45,6 +45,13 @@ func (l *Limiter) Allow() (bool, time.Duration) {
 	return false, time.Duration((1 - l.tokens) / l.rate * float64(time.Second))
 }
 
+func (l *Limiter) Same(o *Limiter) bool {
+	if l == nil || o == nil {
+		return l == nil && o == nil
+	}
+	return l.rate == o.rate && l.burst == o.burst
+}
+
 func (s *Server) admit(w http.ResponseWriter, tenant *Tenant, rt *Route) bool {
 	ok, retry := tenant.Limit.Allow()
 	if ok {
