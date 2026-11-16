@@ -13,6 +13,10 @@ import (
 
 type fakeSet map[string][]byte
 
+func (f fakeSet) Numeric(suffix []byte) bool {
+	return string(suffix) == "N0MBER"
+}
+
 func (f fakeSet) Lookup(t entity.Type, suffix []byte) ([]byte, bool) {
 	if t == entity.Unknown {
 		for k, v := range f {
@@ -33,6 +37,7 @@ var set = fakeSet{
 	"CPF_7H3JX9":   []byte("529.982.247-25"),
 	"IP_ABCDE":     []byte("8.8.8.8"),
 	"EMAIL_QX0TE1": []byte(`o"brien\x@x.pt`),
+	"CPF_N0MBER":   []byte("52998224725"),
 }
 
 func TestRestore(t *testing.T) {
@@ -90,6 +95,32 @@ func TestRelaxedVariants(t *testing.T) {
 	got, _ := Restore(nil, []byte(`{"to":"\u005bEMAIL_K7Q2MA\u005d"}`), set, Options{Encoding: JSONString})
 	if string(got) != `{"to":"ana@empresa.pt"}` {
 		t.Errorf("json unicode escape: got %s", got)
+	}
+}
+
+func TestNumericTokensRestoreAsNumbers(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		`{"cpf":"[CPF_N0MBER]"}`:         `{"cpf":52998224725}`,
+		`{"cpf": "[CPF_N0MBER]" }`:       `{"cpf": 52998224725 }`,
+		`{"note":"CPF [CPF_N0MBER] ok"}`: `{"note":"CPF 52998224725 ok"}`,
+		`{"to":"[EMAIL_K7Q2MA]"}`:        `{"to":"ana@empresa.pt"}`,
+		`{"ids":["[CPF_N0MBER]","x"]}`:   `{"ids":[52998224725,"x"]}`,
+		`{"cpf":"CPF_N0MBER"}`:           `{"cpf":52998224725}`,
+	}
+	for in, want := range cases {
+		got, _ := Restore(nil, []byte(in), set, Options{Encoding: JSONString})
+		if string(got) != want {
+			t.Errorf("%s: got %s want %s", in, got, want)
+		}
+		for i := 0; i <= len(in); i++ {
+			if split, _ := streamed([]byte(in), []int{i}, Options{Encoding: JSONString}); string(split) != want {
+				t.Fatalf("%s split at %d: got %s", in, i, split)
+			}
+		}
+	}
+	if got, _ := Restore(nil, []byte(`"[CPF_N0MBER]"`), set, Options{}); string(got) != `"52998224725"` {
+		t.Fatalf("raw text keeps its quotes: %s", got)
 	}
 }
 

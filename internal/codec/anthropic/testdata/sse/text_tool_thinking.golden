@@ -35,10 +35,10 @@ event: content_block_start
 data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_01","name":"send_email","input":{}}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"to\": \""}}
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"to\": "}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"ana.souza@correio.pt\"}"}}
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"\"ana.souza@correio.pt\"}"}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":2}

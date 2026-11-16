@@ -89,6 +89,7 @@ type entry struct {
 	sum      [32]byte
 	origFrom int
 	origTo   int
+	numeric  bool
 }
 
 type Session struct {
@@ -105,6 +106,7 @@ type Session struct {
 	counters Counters
 	variants int
 	phones   *detect.PhoneState
+	last     int
 }
 
 func (s *Session) SurfaceVariants() int {
@@ -200,6 +202,7 @@ func (s *Session) issue(dst []byte, t entity.Type, raw []byte) ([]byte, error) {
 		if ok && !bytes.Equal(s.arena[s.entries[idx].origFrom:s.entries[idx].origTo], raw) {
 			s.variants++
 		}
+		s.last = idx
 		if !ok {
 			if len(s.entries) >= s.eng.maxEntities {
 				return dst, ErrTooManyEntities
@@ -208,6 +211,7 @@ func (s *Session) issue(dst []byte, t entity.Type, raw []byte) ([]byte, error) {
 			s.arena = append(s.arena, raw...)
 			s.entries = append(s.entries, entry{typ: t, sum: sum, origFrom: from, origTo: len(s.arena)})
 			s.set[key] = len(s.entries) - 1
+			s.last = len(s.entries) - 1
 		}
 		return token.AppendToken(dst, t, key[:n]), nil
 	}
@@ -231,6 +235,16 @@ func (s *Session) Lookup(t entity.Type, suffixUpper []byte) ([]byte, bool) {
 	return s.arena[e.origFrom:e.origTo], true
 }
 
+func (s *Session) Numeric(suffixUpper []byte) bool {
+	if len(suffixUpper) > suffixCap {
+		return false
+	}
+	var key Suffix
+	copy(key[:], suffixUpper)
+	idx, ok := s.set[key]
+	return ok && s.entries[idx].numeric
+}
+
 func (s *Session) MaskJSONStrings(dst, doc []byte) ([]byte, error) {
 	return s.eng.rw.Rewrite(dst, doc, s.maskStringLeaf)
 }
@@ -252,6 +266,9 @@ func (s *Session) MaskLeaf(dst, raw []byte) (out []byte, changed bool, err error
 	if bytes.Equal(masked, raw) {
 		s.scratch = s.scratch[:mark]
 		return dst, false, nil
+	}
+	if len(s.spans) == 1 && s.spans[0].Start == 0 && s.spans[0].End == len(raw) && len(s.entries) > 0 {
+		s.entries[s.last].numeric = true
 	}
 	dst = jsonx.Quote(dst, masked)
 	s.scratch = s.scratch[:mark]

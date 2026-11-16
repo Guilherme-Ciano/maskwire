@@ -15,6 +15,7 @@ const (
 
 type Set interface {
 	Lookup(t entity.Type, suffixUpper []byte) ([]byte, bool)
+	Numeric(suffixUpper []byte) bool
 }
 
 type Foreign uint8
@@ -448,6 +449,9 @@ func (s *Stream) Stats() *Stats {
 }
 
 func (s *Stream) trigger(c byte) bool {
+	if c == '"' {
+		return s.opts.Encoding == JSONString
+	}
 	switch c {
 	case '[', '<', '(', '{', '%', '\\', 0xE3:
 		return true
@@ -499,6 +503,20 @@ func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out [
 			i = j + 1
 			continue
 		}
+		if b[j] == '"' {
+			n, out, res := s.quotedNumber(dst, b[j:], final)
+			switch res {
+			case partial:
+				return dst, j, j
+			case full:
+				dst = out
+				i = j + n
+			case reject:
+				dst = append(dst, '"')
+				i = j + 1
+			}
+			continue
+		}
 		m := matchToken(b[j:], before(b, j, prev), s.opts.Encoding == JSONString, final)
 		switch m.res {
 		case full:
@@ -517,6 +535,43 @@ func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out [
 		}
 	}
 	return dst, i, -1
+}
+
+func (s *Stream) quotedNumber(dst, b []byte, final bool) (n int, out []byte, res result) {
+	if len(b) < 2 {
+		if final {
+			return 0, dst, reject
+		}
+		return 0, dst, partial
+	}
+	m := matchToken(b[1:], '"', true, final)
+	switch m.res {
+	case partial:
+		return 0, dst, partial
+	case reject:
+		return 0, dst, reject
+	case full:
+	}
+	end := 1 + m.n
+	if end >= len(b) {
+		if final {
+			return 0, dst, reject
+		}
+		return 0, dst, partial
+	}
+	if b[end] != '"' {
+		return 0, dst, reject
+	}
+	k := copy(s.key[:], m.suffix[:m.slen])
+	if !s.set.Numeric(s.key[:k]) {
+		return 0, dst, reject
+	}
+	orig, ok := s.set.Lookup(m.typ, s.key[:k])
+	if !ok {
+		return 0, dst, reject
+	}
+	s.stats.Restored++
+	return end + 1, append(dst, orig...), full
 }
 
 func (s *Stream) Feed(dst, chunk []byte) []byte {

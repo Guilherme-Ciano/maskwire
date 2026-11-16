@@ -192,6 +192,19 @@ func TestMaskJSONStrings(t *testing.T) {
 	}
 }
 
+func TestNumericLeafIsMarked(t *testing.T) {
+	t.Parallel()
+	s := newEngine().NewSession(newTenant(t, "acme", policy.New(policy.Enforce, policy.Mask)))
+	out, err := s.MaskJSONStrings(nil, []byte(`{"cpf":52998224725,"note":"cpf 11144477735"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, _ := restore.Restore(nil, out, s, restore.Options{Encoding: restore.JSONString})
+	if string(back) != `{"cpf":52998224725,"note":"cpf 11144477735"}` {
+		t.Fatalf("masked %s restored %s", out, back)
+	}
+}
+
 func TestPropertyMaskThenRestore(t *testing.T) {
 	t.Parallel()
 	eng := newEngine()
