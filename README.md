@@ -7,7 +7,8 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-333333?style=flat-square)
 [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/Guilherme-Ciano/maskwire?style=flat-square&color=333333&label=scorecard)](https://securityscorecards.dev/viewer/?uri=github.com/Guilherme-Ciano/maskwire)
 
-maskwire is a reverse proxy for the OpenAI Chat Completions and Anthropic Messages APIs. Before a request leaves
+maskwire is a reverse proxy for the OpenAI Chat Completions, Responses and Embeddings APIs and the Anthropic Messages
+API. Before a request leaves
 your network it replaces e-mail addresses, phone numbers, IPs, IBANs, card numbers and checksum-valid national IDs
 (CPF, CNPJ, NIF, DNI/NIE, Steuer-ID, NIR, codice fiscale) with opaque tokens such as `[CPF_A0SA1Q]`. When the
 answer comes back, JSON or a server-sent event stream, it puts the original values back, even when a token is
@@ -26,7 +27,7 @@ That output comes from a real `docker compose up` run, recorded in [`docs/demo-o
 - **Teams want LLMs on customer data, but every CPF, NIF and IBAN ends up in a provider's logs.** The usual fix
   is a Python sidecar that redacts. Redaction cannot be undone, so the answer comes back full of placeholders.
 - **Restoring values in a stream is the hard part.** A token like `[EMAIL_FBDYD9]` can arrive as `[EMA` +
-  `IL_FB` + `DYD9]` in three separate SSE events. maskwire restores it with at most 32 bytes held back per stream,
+  `IL_FB` + `DYD9]` in three separate SSE events. maskwire restores it with at most 48 bytes held back per stream,
   and no timers on the hot path.
 - **Masking usually destroys caching.** maskwire derives tokens with HMAC-SHA256 from a per-tenant key, so the
   same input always produces the same masked prompt, and semantic or prompt caches keep hitting.
@@ -105,20 +106,31 @@ How the pieces work:
   capital letters joined by separators (including no-break spaces, zero-width characters, dashes, soft hyphens
   and fullwidth digits) are compacted and checked against real checksums: CPF and CNPJ (including the new
   alphanumeric CNPJ) mod 11, PT NIF, ES DNI/NIE letters, DE Steuer-ID ISO 7064, FR NIR mod 97 with Corsica,
-  IT codice fiscale with omocodia, IBAN mod 97 with the length table for 72 countries, and Luhn with IIN ranges for cards. Phone
-  numbers go through libphonenumber with a per-request budget.
+  IT codice fiscale with omocodia, IBAN mod 97 with the length table for 72 countries, and Luhn with IIN ranges for cards. A digit
+  run only counts as a phone number when it looks like one: an international `+`, an area code in parentheses, or
+  a word such as "tel", "telefone", "WhatsApp" or "Telefon" just before it. It is then checked with
+  libphonenumber under a per-request budget. Without that context, order and invoice numbers are left alone.
+- **Scores.** A checksum-valid ID next to its keyword ("CPF", "NIF", "cartão") scores 1.0, a formatted one
+  (`529.982.247-25`) 0.9, and a bare digit run that happens to pass the checksum 0.6. Bare runs are still masked by
+  default; raise `min_score` for a type to let them through.
 - **Tokens** are `[TYPE_SUFFIX]`, where the suffix is 6 Crockford base32 characters of
   HMAC-SHA256(HKDF(master, tenant), type ‖ canonical value). On an in-request collision the suffix grows to 8, then 10.
 - **Restore** is a hand-written matcher that can answer "complete token", "not a token" or "could still become a
-  token". Only the last case holds bytes back, and a token is at most 26 bytes long, so the hold-back is bounded.
-  It accepts what models do to tokens: lower case, a space inside the brackets, Markdown escaping (`\[EMAIL\_…\]`).
-  Tests restore at every split point of a stream and check the result equals restoring the whole buffer.
+  token". Only the last case holds bytes back, and the longest accepted form is under 48 bytes, so the hold-back is
+  bounded. It accepts what models do to tokens: lower case, spaces, Markdown escaping (`\[EMAIL\_…\]`), other
+  brackets (`<…>`, `(…)`, `{…}`, `【…】`), no brackets at all (`EMAIL_FBDYD9`, upper case only), `-` or a space instead
+  of `_`, labels such as `E-MAIL` or `CORREO`, a missing closing bracket, URL encoding (`%5B…%5D`) and `\u005b`
+  inside tool-call JSON. Any form other than the exact `[TYPE_SUFFIX]` is replaced only when its suffix was issued
+  for this request, so ordinary text such as "EMAIL ADDRESS" is never touched. Tests restore at every split point of
+  a stream and check the result equals restoring the whole buffer.
 - **Foreign-token guard.** Only tokens issued for the current request are restored. Any other well-formed token,
   for example one served by a semantic cache that answered with another customer's response, becomes `[email]`,
   `[cpf]` and so on, and is counted in `maskwire_foreign_tokens_total`.
 - **Request walking is deny-by-default.** Every string leaf is masked except an explicit skip list: model, roles,
-  ids, tool names and JSON schemas, signed Anthropic thinking blocks and base64 payloads. JSON key names are
-  compared after decoding escapes.
+  ids, tool and function names, signed Anthropic thinking blocks and base64 payloads. Inside JSON Schemas (tool
+  parameters, `response_format`, Responses `text.format`) only free text is masked: `description`, `title`,
+  `default`, `const`, `enum` and `examples` values; `type`, `pattern`, `format` and property names never change.
+  JSON key names are compared after decoding escapes, and PII inside JSON numbers in tool arguments becomes a token.
 
 ## Quickstart
 
@@ -185,15 +197,17 @@ example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.ya
 | `audit.enabled` / `audit.dir` | `true` / `audit` | HMAC-chained JSONL per tenant and UTC day |
 | `audit.on_full` | `block` | `block` waits for the writer; `drop` counts and drops |
 | `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
-| `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that 9+ digit runs are masked unvalidated |
-| `routes[]` | | `name`, `path`, `upstream`, `codec` (`openai`, `anthropic`), `synthesize_stream` |
+| `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that, phone-shaped runs (with `+`, parentheses or a keyword) are masked unvalidated |
+| `routes[]` | | `name`, `path`, `upstream`, `codec`, `synthesize_stream`. Codecs: `openai` (Chat Completions), `openai-responses` (Responses API, including streamed events), `openai-embeddings` (masks `input` before it is embedded), `anthropic` (Messages and `count_tokens`), `passthrough` (GET only, no body, for routes such as `/v1/models`; still needs the tenant key) |
 | `tenants[]` | | `id`, `key_sha256` (`maskwire hash-key`), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`) |
 
 An upstream URL with a path is used as is; without a path, the incoming path is appended.
 
 Entity types for `by_type`: `EMAIL`, `PHONE`, `IP`, `IP_PRIVATE` (allowed by default), `CPF`, `CNPJ`, `PT_NIF`,
 `ES_DNI`, `ES_NIE`, `DE_STEUER_ID` (needs a keyword such as "Steuer-ID" nearby), `FR_NIR`, `IT_CF`, `IBAN`,
-`CREDIT_CARD`. Blocked types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
+`CREDIT_CARD`. Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
+lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
+types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
 
 ## Audit log
 

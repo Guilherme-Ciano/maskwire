@@ -13,7 +13,7 @@ Three decisions shaped it:
 
 1️⃣ Restore inside the stream. A token like [EMAIL_FBDYD9] often arrives split across SSE events: "[EMA", then
 "IL_FB", then "DYD9]". A small hand-written state machine holds back only bytes that could still become a token,
-32 bytes at most, and restores the rest immediately. The tests cut streams at every split point and compare the
+48 bytes at most, and restores the rest immediately. The tests cut streams at every split point and compare the
 result with restoring the whole buffer.
 
 2️⃣ Deterministic tokens. Tokens come from an HMAC with a per-tenant key, so the same prompt always reaches the
