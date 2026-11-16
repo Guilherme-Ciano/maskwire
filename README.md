@@ -214,6 +214,27 @@ Entity types for `by_type`: `EMAIL` (also `name (at) domain (dot) tld` forms), `
 lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
 types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
 
+## Metrics
+
+The admin listener serves Prometheus metrics. Labels carry tenant ids, route names and entity type names, never
+values.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `maskwire_requests_total` | tenant, route, status | proxied requests |
+| `maskwire_detections_total` | tenant, type, action | entities found in requests |
+| `maskwire_blocked_requests_total` | tenant, type | requests rejected by a block rule |
+| `maskwire_restores_total` | tenant, streaming | tokens restored in responses |
+| `maskwire_foreign_tokens_total` | tenant, type | tokens not issued for the request |
+| `maskwire_tool_withheld_total` | tenant | tokens left masked in tool arguments by `tool_restore` |
+| `maskwire_response_detections_total` | tenant, type | personal data the model generated itself |
+| `maskwire_mask_duration_seconds` | route | time spent masking the request body |
+| `maskwire_overhead_seconds` | route, streaming | masking plus restoring, excluding time waiting on the upstream |
+| `maskwire_request_duration_seconds` | route, streaming | end-to-end duration including the upstream |
+| `maskwire_stream_holdback_bytes` | | largest hold-back per streamed response |
+| `maskwire_stream_events_total` | outcome | SSE events forwarded or dropped |
+| `maskwire_audit_events_total`, `maskwire_audit_dropped_total` | | audit records written and dropped |
+
 ## Audit log
 
 Each request writes one JSON line with the tenant, route, model, counts per entity type and action, restore and

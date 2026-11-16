@@ -230,6 +230,8 @@ type exchange struct {
 	meta     Meta
 	session  *mask.Session
 	maskTime time.Duration
+	restTime time.Duration
+	waitTime time.Duration
 	inDigest [32]byte
 	outHash  hash.Hash
 	stats    restore.Stats
@@ -403,7 +405,7 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 	}
 	if ct == "text/event-stream" {
 		x.stream = true
-		src := teeCloser{Reader: io.TeeReader(resp.Body, x.outHash), Closer: resp.Body}
+		src := teeCloser{Reader: &timedReader{r: io.TeeReader(resp.Body, x.outHash), d: &x.waitTime}, Closer: resp.Body}
 		if resp.Trailer == nil {
 			resp.Trailer = http.Header{}
 		}
@@ -419,6 +421,7 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 				s.metrics.StreamEvents.WithLabelValues("dropped").Add(float64(dropped))
 			},
 		})
+		resp.Body = &timedBody{ReadCloser: resp.Body, d: &x.restTime}
 		resp.ContentLength = -1
 		resp.Header.Del("Content-Length")
 		resp.Header.Del(HeaderRestored)
@@ -437,6 +440,8 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 		return ErrResponseTooLarge
 	}
 	x.outHash.Write(raw)
+	began := time.Now()
+	defer func() { x.restTime += time.Since(began) }()
 	out, st, err := x.route.Codec.RestoreBody(make([]byte, 0, len(raw)+256), raw, x.session, opts)
 	if err != nil {
 		return fmt.Errorf("restore body: %w", err)
@@ -509,6 +514,8 @@ func (s *Server) finish(r *http.Request, x *exchange) {
 	tenantID := x.tenant.Mask.ID
 	s.metrics.Requests.WithLabelValues(tenantID, x.route.Name, strconv.Itoa(x.status)).Inc()
 	s.metrics.RequestLatency.WithLabelValues(x.route.Name, strconv.FormatBool(x.stream)).Observe(total.Seconds())
+	overhead := x.maskTime + max(x.restTime-x.waitTime, 0)
+	s.metrics.Overhead.WithLabelValues(x.route.Name, strconv.FormatBool(x.stream)).Observe(overhead.Seconds())
 	if x.stats.Restored > 0 {
 		s.metrics.Restores.WithLabelValues(tenantID, strconv.FormatBool(x.stream)).Add(float64(x.stats.Restored))
 	}
@@ -562,6 +569,41 @@ func (s *Server) finish(r *http.Request, x *exchange) {
 type teeCloser struct {
 	io.Reader
 	io.Closer
+}
+
+type timedReader struct {
+	r io.Reader
+	d *time.Duration
+}
+
+func (t *timedReader) Read(p []byte) (int, error) {
+	began := time.Now()
+	n, err := t.r.Read(p)
+	*t.d += time.Since(began)
+	return n, readErr(err, "read upstream")
+}
+
+func readErr(err error, op string) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, io.EOF):
+		return io.EOF
+	default:
+		return fmt.Errorf("%s: %w", op, err)
+	}
+}
+
+type timedBody struct {
+	io.ReadCloser
+	d *time.Duration
+}
+
+func (t *timedBody) Read(p []byte) (int, error) {
+	began := time.Now()
+	n, err := t.ReadCloser.Read(p)
+	*t.d += time.Since(began)
+	return n, readErr(err, "read response")
 }
 
 type statusWriter struct {

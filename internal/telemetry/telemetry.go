@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	labelTenant = "tenant"
-	labelRoute  = "route"
-	labelType   = "type"
+	labelTenant    = "tenant"
+	labelStreaming = "streaming"
+	labelRoute     = "route"
+	labelType      = "type"
 )
 
 func redact(_ []string, a slog.Attr) slog.Attr {
@@ -45,6 +46,7 @@ type Metrics struct {
 	ToolWithheld   *prometheus.CounterVec
 	MaskDuration   *prometheus.HistogramVec
 	RequestLatency *prometheus.HistogramVec
+	Overhead       *prometheus.HistogramVec
 	Holdback       prometheus.Histogram
 	StreamEvents   *prometheus.CounterVec
 
@@ -96,7 +98,7 @@ func NewMetrics() *Metrics {
 		}, []string{labelTenant, labelType}),
 		Restores: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "maskwire_restores_total", Help: "Tokens restored in responses.",
-		}, []string{labelTenant, "streaming"}),
+		}, []string{labelTenant, labelStreaming}),
 		ToolWithheld: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "maskwire_tool_withheld_total",
 			Help: "Tokens left masked in tool-call arguments by the tenant's tool_restore policy.",
@@ -108,7 +110,12 @@ func NewMetrics() *Metrics {
 		RequestLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "maskwire_request_duration_seconds", Help: "End-to-end request duration including upstream.",
 			Buckets: durationBuckets(), NativeHistogramBucketFactor: 1.1,
-		}, []string{labelRoute, "streaming"}),
+		}, []string{labelRoute, labelStreaming}),
+		Overhead: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "maskwire_overhead_seconds",
+			Help:    "Time maskwire spent masking and restoring a request, excluding time waiting on the upstream.",
+			Buckets: durationBuckets(), NativeHistogramBucketFactor: 1.1,
+		}, []string{labelRoute, labelStreaming}),
 		Holdback: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "maskwire_stream_holdback_bytes", Help: "Maximum bytes held back per streamed response.",
 			Buckets: []float64{0, 1, 2, 4, 8, 16, 24, 32},
@@ -122,7 +129,7 @@ func NewMetrics() *Metrics {
 		}, []string{"outcome"}),
 	}
 	reg.MustRegister(m.Requests, m.Detections, m.Blocked, m.ForeignTokens, m.Restores, m.ToolWithheld, m.MaskDuration,
-		m.RequestLatency, m.Holdback, m.StreamEvents, m.ResponseDetections)
+		m.RequestLatency, m.Overhead, m.Holdback, m.StreamEvents, m.ResponseDetections)
 	return m
 }
 

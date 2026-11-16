@@ -511,6 +511,24 @@ func TestStreamRestoredTrailer(t *testing.T) {
 	}
 }
 
+func TestOverheadMetric(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	h.post(chatPath, chatBody(t, true), nil)
+	h.post(chatPath, chatBody(t, false), nil)
+	srv := httptest.NewServer(h.app.AdminHandler())
+	defer srv.Close()
+	m := h.do(http.MethodGet, srv.URL+"/metrics", "", nil).body
+	for _, want := range []string{
+		`maskwire_overhead_seconds_count{route="openai",streaming="true"} 1`,
+		`maskwire_overhead_seconds_count{route="openai",streaming="false"} 1`,
+	} {
+		if !strings.Contains(m, want) {
+			t.Fatalf("missing %s", want)
+		}
+	}
+}
+
 func TestToolRestoreWithholdsTypes(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, func(c *config.Config) { c.Tenants[0].ToolRestore = []string{"EMAIL"} })
