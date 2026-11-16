@@ -190,6 +190,30 @@ Try the detector on its own:
 echo "CPF 529.982.247-25, IBAN DE89 3704 0044 0532 0130 00" | go run ./cmd/maskwire detect
 ```
 
+## Use as a Go library
+
+The detector, tokens and restorer are also available without the proxy, for batch jobs or for apps that call
+the provider themselves:
+
+```go
+m, err := mask.New(mask.Options{MasterKey: key, Tenant: "acme"})
+if err != nil {
+	return err
+}
+s := m.Session()
+defer s.Close()
+masked, err := s.Mask(ticket)
+if err != nil {
+	return err
+}
+reply := callModel(masked)
+fmt.Println(s.Restore(reply))
+```
+
+`github.com/Guilherme-Ciano/maskwire/pkg/mask` also has `MaskJSON`, a streaming `Restorer` (`Write` each chunk,
+then `Flush`), per-type `Counts`, policy `Rules` with `block` returning a `*BlockedError`, and a key-less
+`Detect` for scanning only. Tokens from the same key and tenant match the proxy's, so both can be used together.
+
 ## Configuration
 
 YAML file (`--config` or `MASKWIRE_CONFIG`) overlaid by environment variables: `MASKWIRE_SECTION__KEY`, for
