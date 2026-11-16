@@ -38,7 +38,7 @@ test: ## Unit and integration tests with the race detector
 
 .PHONY: cover
 cover: ## Coverage report and gate (80% of internal packages)
-	$(GO) test -race -covermode=atomic -coverpkg=./internal/... -coverprofile=cover.out ./...
+	$(GO) test -race -covermode=atomic -coverpkg=./internal/...,./pkg/... -coverprofile=cover.out ./...
 	$(GO) run ./internal/tools/covergate -profile cover.out -min 80
 
 .PHONY: fuzz

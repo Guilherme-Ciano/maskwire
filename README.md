@@ -2,10 +2,15 @@
 
 > Reversible, streaming-safe PII pseudonymisation for LLM APIs, in a single Go binary.
 
-![CI](https://img.shields.io/github/actions/workflow/status/Guilherme-Ciano/maskwire/ci.yml?branch=main&style=flat-square&color=333333&label=ci&logo=githubactions&logoColor=white)
-![Go](https://img.shields.io/badge/go-1.27-333333?style=flat-square&logo=go&logoColor=white)
-![License](https://img.shields.io/badge/license-Apache--2.0-333333?style=flat-square)
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/Guilherme-Ciano/maskwire?style=flat-square&color=333333&label=scorecard)](https://securityscorecards.dev/viewer/?uri=github.com/Guilherme-Ciano/maskwire)
+[![CI](https://github.com/Guilherme-Ciano/maskwire/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Guilherme-Ciano/maskwire/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Guilherme-Ciano/maskwire/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Guilherme-Ciano/maskwire/actions/workflows/codeql.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FGuilherme-Ciano%2Fmaskwire%2Fbadges%2Fcoverage.json)](https://github.com/Guilherme-Ciano/maskwire/actions/workflows/ci.yml)
+[![Detection eval](https://img.shields.io/badge/detection%20eval-20k%20docs-333333)](docs/evaluation.md)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Guilherme-Ciano/maskwire)](https://goreportcard.com/report/github.com/Guilherme-Ciano/maskwire)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Guilherme-Ciano/maskwire/badge)](https://scorecard.dev/viewer/?uri=github.com/Guilherme-Ciano/maskwire)
+[![Release](https://img.shields.io/github/v/release/Guilherme-Ciano/maskwire?sort=semver)](https://github.com/Guilherme-Ciano/maskwire/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Guilherme-Ciano/maskwire.svg)](https://pkg.go.dev/github.com/Guilherme-Ciano/maskwire/pkg/mask)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 maskwire is a reverse proxy for the OpenAI Chat Completions, Responses and Embeddings APIs and the Anthropic Messages
 API. Before a request leaves

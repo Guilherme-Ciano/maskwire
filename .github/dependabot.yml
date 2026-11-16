@@ -2,18 +2,37 @@ version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule: { interval: weekly }
-    groups: { gomod: { patterns: ["*"] } }
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    groups:
+      phonenumbers:
+        patterns: ["github.com/nyaruka/phonenumbers"]
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: gomod
-    directory: /tools
-    schedule: { interval: weekly }
-  - package-ecosystem: gomod
-    directory: /bench
-    schedule: { interval: weekly }
+    directories: [/tools, /bench]
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    groups:
+      tooling:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
-    groups: { actions: { patterns: ["*"] } }
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: docker
+    directories: [/, /deploy/scg]
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: docker-compose
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Sao_Paulo }
+    groups:
+      compose-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

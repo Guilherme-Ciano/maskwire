@@ -50,6 +50,8 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.title: maskwire
+      org.opencontainers.image.description: "Reversible, streaming-safe PII pseudonymisation proxy for the OpenAI and Anthropic APIs"
 
 docker_signs:
   - cmd: cosign
