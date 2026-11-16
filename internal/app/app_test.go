@@ -272,6 +272,46 @@ func TestCompressedUpstreamIsDecoded(t *testing.T) {
 	}
 }
 
+func TestPromptHint(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, func(c *config.Config) { c.Tenants[0].PromptHint = true })
+	hint := "is a placeholder for personal data"
+	h.post(chatPath, chatBody(t, false), nil)
+	saw := h.upstreamSaw(false)
+	if !strings.Contains(saw, `"messages":[{"role":"system","content":"Text such as`) {
+		t.Fatalf("openai hint missing: %s", saw)
+	}
+	h.post(
+		chatPath,
+		mustJSON(
+			t,
+			map[string]any{
+				"model":    "m",
+				"messages": []any{map[string]string{"role": "user", "content": "no personal data here"}},
+			},
+		),
+		nil,
+	)
+	if strings.Contains(h.upstreamSaw(false), hint) {
+		t.Fatal("no hint without tokens")
+	}
+	h.post(
+		"/v1/messages",
+		`{"model":"c","max_tokens":5,"system":"Be brief.","messages":[{"role":"user","content":`+mustJSON(
+			t,
+			prompt,
+		)+`}]}`,
+		nil,
+	)
+	if saw := h.upstreamSaw(false); !strings.Contains(saw, hint) || !strings.Contains(saw, `Be brief."`) {
+		t.Fatalf("anthropic hint: %s", saw)
+	}
+	h.post("/v1/responses", mustJSON(t, map[string]any{"model": "m", "input": prompt}), nil)
+	if saw := h.upstreamSaw(false); !strings.Contains(saw, `"instructions":"Text such as`) {
+		t.Fatalf("responses hint: %s", saw)
+	}
+}
+
 func TestEmbeddingsAreMasked(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

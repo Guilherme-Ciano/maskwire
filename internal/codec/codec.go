@@ -105,3 +105,35 @@ func SchemaRoot(path []jsonx.Frame, names ...string) int {
 	}
 	return -1
 }
+
+const PromptHint = "Text such as [EMAIL_K7Q2MA] or [CPF_A0SA1Q] is a placeholder for personal data. " +
+	"Copy each placeholder exactly as written, brackets included, and never translate, split, reformat or invent one."
+
+func InjectOpenAIHint(doc []byte) ([]byte, error) {
+	start, end, ok, err := jsonx.TopLevel(doc, "messages")
+	if err != nil || !ok || doc[start] != '[' {
+		return doc, err
+	}
+	msg := []byte(`{"role":"system","content":`)
+	msg = jsonx.Quote(msg, []byte(PromptHint))
+	return jsonx.PrependToArray(doc, start, end, append(msg, '}')), nil
+}
+
+func InjectStringHint(doc []byte, key string) ([]byte, error) {
+	start, end, ok, err := jsonx.TopLevel(doc, key)
+	if err != nil {
+		return doc, err
+	}
+	if !ok {
+		return jsonx.InsertTopLevel(doc, key, jsonx.Quote(nil, []byte(PromptHint)))
+	}
+	switch doc[start] {
+	case '"':
+		return jsonx.PrependToString(doc, start, end, PromptHint+"\n\n")
+	case '[':
+		block := []byte(`{"type":"text","text":`)
+		block = jsonx.Quote(block, []byte(PromptHint))
+		return jsonx.PrependToArray(doc, start, end, append(block, '}')), nil
+	}
+	return doc, nil
+}

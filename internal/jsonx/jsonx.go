@@ -254,3 +254,71 @@ func Under(path []Frame, name string) bool {
 	}
 	return false
 }
+
+var ErrNotObject = errors.New("json document is not an object")
+
+func TopLevel(doc []byte, key string) (start, end int, found bool, err error) {
+	d := jsontext.NewDecoder(bytes.NewReader(doc))
+	tok, err := d.ReadToken()
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("read document: %w", err)
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return 0, 0, false, ErrNotObject
+	}
+	for d.PeekKind() != jsontext.KindEndObject {
+		tok, err := d.ReadToken()
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("read name: %w", err)
+		}
+		name := tok.String()
+		v, err := d.ReadValue()
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("read value: %w", err)
+		}
+		if name == key {
+			end = int(d.InputOffset())
+			return end - len(v), end, true, nil
+		}
+	}
+	return 0, 0, false, nil
+}
+
+func InsertTopLevel(doc []byte, key string, raw []byte) ([]byte, error) {
+	open := bytes.IndexByte(doc, '{')
+	if open < 0 {
+		return nil, ErrNotObject
+	}
+	rest := bytes.TrimLeft(doc[open+1:], " \t\r\n")
+	out := make([]byte, 0, len(doc)+len(key)+len(raw)+4)
+	out = append(out, doc[:open+1]...)
+	out = Quote(out, []byte(key))
+	out = append(out, ':')
+	out = append(out, raw...)
+	if len(rest) > 0 && rest[0] != '}' {
+		out = append(out, ',')
+	}
+	return append(out, doc[open+1:]...), nil
+}
+
+func PrependToArray(doc []byte, start, end int, elem []byte) []byte {
+	inner := bytes.TrimSpace(doc[start+1 : end-1])
+	out := make([]byte, 0, len(doc)+len(elem)+1)
+	out = append(out, doc[:start+1]...)
+	out = append(out, elem...)
+	if len(inner) > 0 {
+		out = append(out, ',')
+	}
+	return append(out, doc[start+1:]...)
+}
+
+func PrependToString(doc []byte, start, end int, prefix string) ([]byte, error) {
+	cur, err := Unquote(nil, doc[start:end])
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(doc)+len(prefix)+8)
+	out = append(out, doc[:start]...)
+	out = Quote(out, append([]byte(prefix), cur...))
+	return append(out, doc[end:]...), nil
+}

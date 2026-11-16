@@ -102,6 +102,7 @@ type Tenant struct {
 	Default     string          `koanf:"default"`
 	ByType      map[string]Rule `koanf:"by_type"`
 	TokenLength int             `koanf:"token_length"`
+	PromptHint  bool            `koanf:"prompt_hint"`
 	Foreign     string          `koanf:"foreign_token"`
 }
 

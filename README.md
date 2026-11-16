@@ -199,7 +199,7 @@ example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.ya
 | `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
 | `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that, phone-shaped runs (with `+`, parentheses or a keyword) are masked unvalidated |
 | `routes[]` | | `name`, `path`, `upstream`, `codec`, `synthesize_stream`. Codecs: `openai` (Chat Completions), `openai-responses` (Responses API, including streamed events), `openai-embeddings` (masks `input` before it is embedded), `anthropic` (Messages and `count_tokens`), `passthrough` (GET only, no body, for routes such as `/v1/models`; still needs the tenant key) |
-| `tenants[]` | | `id`, `key_sha256` (`maskwire hash-key`), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`) |
+| `tenants[]` | | `id`, `key_sha256` (`maskwire hash-key`), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`), `prompt_hint` (adds a short instruction to copy placeholders verbatim whenever a request carries tokens; off by default because it changes the prompt) |
 
 An upstream URL with a path is used as is; without a path, the incoming path is appended.
 

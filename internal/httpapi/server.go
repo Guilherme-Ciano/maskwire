@@ -48,9 +48,10 @@ var (
 )
 
 type Tenant struct {
-	Mask    *mask.Tenant
-	KeyHash [32]byte
-	Foreign restore.Foreign
+	Mask       *mask.Tenant
+	KeyHash    [32]byte
+	Foreign    restore.Foreign
+	PromptHint bool
 }
 
 type Route struct {
@@ -293,6 +294,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	}
 	if observe {
 		masked = body
+	} else if tenant.PromptHint && x.session.Issued() > 0 {
+		if hinted, err := rt.Codec.InjectHint(masked); err == nil {
+			masked = hinted
+		}
 	}
 	x.inDigest = sha256.Sum256(masked)
 	s.forward(w, r, x, masked, observe)

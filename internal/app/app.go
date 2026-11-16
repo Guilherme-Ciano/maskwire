@@ -153,9 +153,10 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 			foreign = restore.ForeignKeep
 		}
 		out = append(out, &httpapi.Tenant{
-			Mask:    &mask.Tenant{ID: t.ID, Key: key, Policy: p, TokenLength: t.TokenLength},
-			KeyHash: h,
-			Foreign: foreign,
+			Mask:       &mask.Tenant{ID: t.ID, Key: key, Policy: p, TokenLength: t.TokenLength},
+			KeyHash:    h,
+			Foreign:    foreign,
+			PromptHint: t.PromptHint,
 		})
 	}
 	return out, nil

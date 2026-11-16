@@ -25,6 +25,7 @@ type Codec interface {
 	RestoreBody(dst, body []byte, set restore.Set, o restore.Options) ([]byte, restore.Stats, error)
 	NewStreamBody(src io.ReadCloser, set restore.Set, o StreamOptions) StreamBody
 	Synthesize(dst, body []byte) ([]byte, error)
+	InjectHint(body []byte) ([]byte, error)
 }
 
 type openAICodec struct {
@@ -169,4 +170,20 @@ func (r responsesCodec) NewStreamBody(src io.ReadCloser, set restore.Set, o Stre
 
 func (responsesCodec) Synthesize(dst, body []byte) ([]byte, error) {
 	return openai.SynthesizeResponses(dst, body)
+}
+
+func (openAICodec) InjectHint(body []byte) ([]byte, error) {
+	return codec.InjectOpenAIHint(body)
+}
+
+func (anthropicCodec) InjectHint(body []byte) ([]byte, error) {
+	return codec.InjectStringHint(body, "system")
+}
+
+func (responsesCodec) InjectHint(body []byte) ([]byte, error) {
+	return codec.InjectStringHint(body, "instructions")
+}
+
+func (embeddingsCodec) InjectHint(body []byte) ([]byte, error) {
+	return body, nil
 }
