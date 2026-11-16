@@ -84,6 +84,13 @@ func TestDetect(t *testing.T) {
 		{"write ana.s[at]correio.com.br now", []hit{{"ana.s[at]correio.com.br", entity.Email}}},
 		{"see the (at) symbol and [at] alone", nil},
 		{"cpf\u00a0529.982.247\u200b-25", []hit{{"529.982.247\u200b-25", entity.CPF}}},
+		{"tel +351 931 511 866 hoje", []hit{{"+351 931 511 866", entity.Phone}}},
+		{"ref +33 7 48 74 05 73 ok", []hit{{"+33 7 48 74 05 73", entity.Phone}}},
+		{"ref +49 1514 8000206 ok", []hit{{"+49 1514 8000206", entity.Phone}}},
+		{"ok build 13.0.18267.2468", nil},
+		{"ok 177.763.604-50", nil},
+		{"henkilötunnus 280932-4193 ok", []hit{{"280932-4193", entity.FIHETU}}},
+		{"henkilötunnus 150107-7992 ok", []hit{{"150107-7992", entity.FIHETU}}},
 	}
 	for _, tc := range cases {
 		got := found(t, d, tc.in)

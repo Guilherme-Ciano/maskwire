@@ -18,6 +18,7 @@ const (
 	keywordWindow   = 48
 	bareIDScore     = 0.6
 	bareSteuerScore = 0.5
+	formattedScore  = 0.9
 	maxLowerGroup   = 4
 	minPhoneDigits  = 9
 	maxPhoneDigits  = 15
@@ -312,6 +313,9 @@ func (s *scanner) flushRun() {
 		if score < 0.9 && s.phoneShaped(i) {
 			continue
 		}
+		if score < 1 && (s.phonePrefixed(0) || s.splitsToken(i, end, n, &claimed) || s.looseGroups(typ, i, end)) {
+			continue
+		}
 		s.emitScore(s.groups[i].start, s.groups[end].end, typ, score)
 		for k := i; k <= end; k++ {
 			claimed[k] = true
@@ -329,6 +333,32 @@ func (s *scanner) phoneShaped(i int) bool {
 		return true
 	}
 	return s.context(start, phoneWords()...)
+}
+
+func (s *scanner) phonePrefixed(i int) bool {
+	start := s.groups[i].start
+	return start > 0 && (s.text[start-1] == '+' || s.text[start-1] == '(')
+}
+
+func (s *scanner) tight(from, to int) bool {
+	for _, c := range s.text[from:to] {
+		if c != ' ' {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *scanner) looseGroups(t entity.Type, first, last int) bool {
+	return first < last && !s.official(t, first, last) && !distinctFormat(t) && t != entity.IBAN && t != entity.ITCF &&
+		t != entity.ESDNI && t != entity.ESNIE && t != entity.IP && t != entity.IPPrivate
+}
+
+func (s *scanner) splitsToken(first, last, n int, claimed *[maxGroups]bool) bool {
+	if first > 0 && !claimed[first-1] && s.tight(s.groups[first-1].end, s.groups[first].start) {
+		return true
+	}
+	return last < n-1 && s.tight(s.groups[last].end, s.groups[last+1].start)
 }
 
 func (s *scanner) mayStartAlnum(i int) bool {
@@ -435,8 +465,12 @@ func (s *scanner) classify10(b []byte, first, last int) entity.Type {
 	switch {
 	case checksum.ATSVNR(b) && s.labelled(entity.ATSVNR, first):
 		return entity.ATSVNR
+	case checksum.FIHETU(b) && s.labelled(entity.FIHETU, first):
+		return entity.FIHETU
 	case checksum.SEPNR(b) && (s.labelled(entity.SEPNR, first) || s.groupLens(first, last, 6, 4)):
 		return entity.SEPNR
+	case checksum.FIHETU(b) && s.groupLens(first, last, 6, 4):
+		return entity.FIHETU
 	}
 	return entity.Unknown
 }
@@ -587,12 +621,51 @@ func (s *scanner) idScore(t entity.Type, first, last int) float32 {
 	switch {
 	case keyword:
 		return 1
+	case s.official(t, first, last):
+		return formattedScore
 	case t == entity.DESteuerID:
 		return bareSteuerScore
-	case distinctFormat(t) || last > first:
-		return 0.9
+	case distinctFormat(t):
+		return formattedScore
 	}
 	return bareIDScore
+}
+
+func (s *scanner) sizes(first, last int, lens ...int) bool {
+	if last-first+1 != len(lens) {
+		return false
+	}
+	for k, n := range lens {
+		g := s.groups[first+k]
+		if g.digits+g.letters != n {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *scanner) official(t entity.Type, first, last int) bool {
+	if first == last {
+		return false
+	}
+	switch t {
+	case entity.CPF:
+		return s.sizes(first, last, 3, 3, 3, 2)
+	case entity.CNPJ:
+		return s.sizes(first, last, 2, 3, 3, 4, 2)
+	case entity.PTNIF:
+		return s.sizes(first, last, 3, 3, 3)
+	case entity.DESteuerID:
+		return s.sizes(first, last, 2, 3, 3, 3)
+	case entity.FRNIR:
+		return s.sizes(first, last, 1, 2, 2, 2, 3, 3, 2)
+	case entity.CreditCard:
+		return s.sizes(first, last, 4, 4, 4, 4) || s.sizes(first, last, 4, 6, 5) || s.sizes(first, last, 4, 4, 4, 4, 3)
+	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.ESDNI, entity.ESNIE,
+		entity.ITCF, entity.IBAN, entity.NLBSN, entity.PLPESEL, entity.BENN, entity.ATSVNR, entity.SEPNR,
+		entity.FIHETU, entity.IEPPSN, entity.UKNINO, entity.BRPIS:
+	}
+	return false
 }
 
 func distinctFormat(t entity.Type) bool {
