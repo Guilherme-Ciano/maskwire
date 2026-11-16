@@ -2,6 +2,8 @@ module github.com/Guilherme-Ciano/maskwire
 
 go 1.27.0
 
+toolchain go1.27.4
+
 require (
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.2

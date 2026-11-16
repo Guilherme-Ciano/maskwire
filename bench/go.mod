@@ -2,6 +2,8 @@ module github.com/Guilherme-Ciano/maskwire/bench
 
 go 1.27.0
 
+toolchain go1.27.4
+
 replace github.com/Guilherme-Ciano/maskwire => ../
 
 require github.com/tsenart/vegeta/v12 v12.13.0
