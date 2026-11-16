@@ -21,7 +21,12 @@ lint: ## Lint, check for comments and tidy go.mod
 	$(LINT) run ./...
 	$(GO) run ./internal/tools/nocomments
 	$(GO) run ./internal/tools/configdoc -check
+	$(GO) run ./internal/tools/evalreport -check
 	$(GO) mod tidy -diff
+
+.PHONY: eval
+eval: ## Regenerate docs/evaluation.md from the synthetic detection benchmark
+	$(GO) run ./internal/tools/evalreport
 
 .PHONY: configdoc
 configdoc: ## Regenerate docs/configuration.md from the config structs
