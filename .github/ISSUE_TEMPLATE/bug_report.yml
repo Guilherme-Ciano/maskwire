@@ -1,0 +1,37 @@
+name: Bug report
+description: Something maskwire does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste real personal data. Replace values with synthetic ones such as `ana@example.com` or the CPF
+        `529.982.247-25`. Security issues go through SECURITY.md, not here.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `maskwire --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [detection, masking, restore / streaming, codec (OpenAI / Anthropic), audit, config, metrics, other]
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The request (synthetic data only), the route and codec, and the relevant part of the config.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true

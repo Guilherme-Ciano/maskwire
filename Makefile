@@ -20,7 +20,12 @@ fmt: ## Format code with the golangci-lint formatters
 lint: ## Lint, check for comments and tidy go.mod
 	$(LINT) run ./...
 	$(GO) run ./internal/tools/nocomments
+	$(GO) run ./internal/tools/configdoc -check
 	$(GO) mod tidy -diff
+
+.PHONY: configdoc
+configdoc: ## Regenerate docs/configuration.md from the config structs
+	$(GO) run ./internal/tools/configdoc
 
 .PHONY: test
 test: ## Unit and integration tests with the race detector

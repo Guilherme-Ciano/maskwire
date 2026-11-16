@@ -130,6 +130,9 @@ linters:
     rules:
       - path: _test\.go
         linters: [gochecknoglobals, wrapcheck, forcetypeassert, gosec, goconst, gocognit]
+      - path: internal/tools/configdoc/descriptions\.go
+        linters: [gosec]
+        text: G101
       - path: cmd/
         linters: [gochecknoglobals]
         text: "(version|commit|date) is a global variable"

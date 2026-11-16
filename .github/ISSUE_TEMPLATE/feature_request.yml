@@ -1,0 +1,21 @@
+name: Feature request
+description: A new entity type, codec, policy or integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and why the current behaviour is not enough.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: For a new identifier, link the official format and checksum specification.
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy impact
+      description: Could this change send more personal data upstream, or into logs, metrics or the audit log?

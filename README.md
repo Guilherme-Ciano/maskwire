@@ -159,6 +159,7 @@ make demo
 | semantic-cache-gateway | 18080 (`SCG_PORT`) | cache, upstream of the default route |
 | mockllm | 19000 (`MOCKLLM_PORT`) | mock provider; `GET /last` shows what the upstream received |
 | prometheus | 9092 (`PROMETHEUS_PORT`) | scrapes maskwire |
+| grafana | 3000 (`GRAFANA_PORT`) | provisioned maskwire dashboard, anonymous read-only |
 
 `make demo` runs six scenarios: a JSON request through the cache (MISS), the same prompt as a stream (cache HIT,
 replayed as SSE), a different customer with the same wording (the foreign-token guard), a direct streaming route,
@@ -186,29 +187,30 @@ echo "CPF 529.982.247-25, IBAN DE89 3704 0044 0532 0130 00" | go run ./cmd/maskw
 ## Configuration
 
 YAML file (`--config` or `MASKWIRE_CONFIG`) overlaid by environment variables: `MASKWIRE_SECTION__KEY`, for
-example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.yaml).
+example `MASKWIRE_SERVER__ADDR`. Every key with its type, default and meaning is in
+[`docs/configuration.md`](docs/configuration.md), generated from the code; [`deploy/maskwire.yaml`](deploy/maskwire.yaml)
+is a working example. The settings most deployments touch:
 
-| Key | Default | Description |
-|---|---|---|
-| `server.addr` | `:8090` | proxy listener |
-| `server.admin_addr` | `127.0.0.1:9090` | metrics and health listener |
-| `server.tenant_header` | `X-Maskwire-Key` | header carrying the tenant API key (stripped before forwarding) |
-| `server.session_header` | `X-Maskwire-Session` | conversation id for `token_scope: session` (stripped before forwarding) |
-| `server.default_tenant` | empty | tenant used when the header is missing; leave empty in production |
-| `server.max_body_bytes` | `4194304` | request body limit |
-| `server.upstream_timeout` | `60s` | time to response headers before a 504 |
-| `server.stream_idle_timeout` | `60s` | longest wait for upstream bytes in a stream before it is cut |
-| `keys.master_key` / `keys.master_key_file` | none | 32+ byte hex key; the file must not be readable by other users. Use `MASKWIRE_KEYS__MASTER_KEY` or a secret file |
-| `keys.version` | `1` | changing it rotates every tenant's tokens |
-| `audit.enabled` / `audit.dir` | `true` / `audit` | HMAC-chained JSONL per tenant and UTC day |
-| `audit.on_full` | `block` | `block` waits for the writer; `drop` counts and drops |
-| `audit.anchor_file` | | append chain heads here every 5 s for `audit verify --anchors`; keep it off the audit volume |
-| `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
-| `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that, phone-shaped runs (with `+`, parentheses or a keyword) are masked unvalidated |
-| `routes[]` | | `name`, `path`, `upstream`, `codec`, `synthesize_stream`. Codecs: `openai` (Chat Completions), `openai-responses` (Responses API, including streamed events), `openai-embeddings` (masks `input` before it is embedded), `anthropic` (Messages and `count_tokens`), `passthrough` (GET only, no body, for routes such as `/v1/models`; still needs the tenant key) |
-| `tenants[]` | | `id`, `key_sha256` (`maskwire gen-key` creates a key and its hash; `hash-key` hashes an existing one of at least 24 characters), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`), `prompt_hint` (adds a short instruction to copy placeholders verbatim whenever a request carries tokens; off by default because it changes the prompt), `response_scan` (`observe`, the default, counts personal data the model generated itself in `maskwire_response_detections_total` and the audit record; `off`), `tool_restore` (entity types restored inside tool-call arguments: `all`, the default, `none`, or a list such as `[EMAIL, PHONE]`; other types stay as tokens so a prompt injection cannot route them into a tool, counted in `maskwire_tool_withheld_total`), `rate_limit` (`rps` and `burst`; requests over the limit get `429` with `Retry-After` before the body is read, and appear in `maskwire_requests_total` with status 429; off when `rps` is 0), `token_scope` (`tenant`, the default, gives the same token for the same value in every request so prompt caches keep hitting; `session` derives tokens from the `X-Maskwire-Session` header so they are stable within a conversation and unlinkable across conversations; `request` gives fresh tokens on every request and no two requests can be linked, at the cost of cache hits; a `session` request without the header falls back to `request`) |
-
-An upstream URL with a path is used as is; without a path, the incoming path is appended.
+- `keys.master_key_file`: a 32+ byte hex key in a file only maskwire can read. It derives every tenant's token key
+  and the audit key; changing `keys.version` rotates all tokens.
+- `routes[]`: one per upstream endpoint, with a codec: `openai` (Chat Completions), `openai-responses`,
+  `openai-embeddings`, `anthropic` (Messages and `count_tokens`) or `passthrough` (GET routes such as `/v1/models`,
+  still behind the tenant key). An upstream URL with a path is used as is; without one, the incoming path is
+  appended.
+- `tenants[]`: `key_sha256` (`maskwire gen-key` prints a key and its hash; `hash-key` hashes an existing key of at
+  least 24 characters), `mode` (`enforce` or `observe`), a `default` action and `by_type` rules with `action` and
+  `min_score`.
+- `tenants[].token_scope`: `tenant` (the default) gives the same token for the same value in every request, so
+  prompt caches keep hitting; `session` keys tokens to the `X-Maskwire-Session` header, so they are stable within a
+  conversation and unlinkable across conversations; `request` gives fresh tokens every time, at the cost of cache
+  hits. A `session` request without the header falls back to `request`.
+- `tenants[].tool_restore`: the entity types restored inside tool-call arguments (`all`, `none` or a list such as
+  `[EMAIL, PHONE]`). Other types stay as tokens, so a prompt injection cannot route them into a tool; they are
+  counted in `maskwire_tool_withheld_total`.
+- `tenants[].rate_limit`: `rps` and `burst`; requests over the limit get `429` with `Retry-After` before the body
+  is read.
+- `tenants[].prompt_hint` adds a short instruction to copy placeholders verbatim (off by default because it
+  changes the prompt). `tenants[].response_scan: observe` counts personal data the model generated itself.
 
 Entity types for `by_type`: `EMAIL` (also `name (at) domain (dot) tld` forms), `PHONE`, `IP`, `IP_PRIVATE`
 (allowed by default), `CPF`, `CNPJ` (numeric and the new alphanumeric format), `PT_NIF`, `ES_DNI`, `ES_NIE`,
@@ -228,6 +230,12 @@ and `server.default_tenant` need a restart. An invalid file is rejected and the 
 attempt is counted in `maskwire_tenant_reloads_total{result}`.
 
 ## Metrics
+
+The compose demo provisions a Grafana dashboard ([`deploy/grafana/dashboards/maskwire.json`](deploy/grafana/dashboards/maskwire.json))
+on http://localhost:3000 with request rates, detections, overhead and latency percentiles, restores and guards,
+streaming and audit health:
+
+![maskwire Grafana dashboard after a few minutes of demo traffic](docs/img/grafana-dashboard.jpg)
 
 The admin listener serves Prometheus metrics. Labels carry tenant ids, route names and entity type names, never
 values.
