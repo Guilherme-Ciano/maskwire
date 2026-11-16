@@ -481,6 +481,36 @@ func TestOpenAIToolCallStreaming(t *testing.T) {
 	}
 }
 
+func TestStreamRestoredTrailer(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		h.proxy.URL+chatPath,
+		strings.NewReader(chatBody(t, true)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(keyHeader, tenantKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, ok := resp.Trailer["X-Maskwire-Restored"]; !ok {
+		t.Fatalf("trailer not announced: %v", resp.Header)
+	}
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	if got := resp.Trailer.Get("X-Maskwire-Restored"); got != "3" {
+		t.Fatalf("restored trailer %q", got)
+	}
+}
+
 func TestToolRestoreWithholdsTypes(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, func(c *config.Config) { c.Tenants[0].ToolRestore = []string{"EMAIL"} })

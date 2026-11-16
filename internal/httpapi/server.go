@@ -404,12 +404,17 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 	if ct == "text/event-stream" {
 		x.stream = true
 		src := teeCloser{Reader: io.TeeReader(resp.Body, x.outHash), Closer: resp.Body}
+		if resp.Trailer == nil {
+			resp.Trailer = http.Header{}
+		}
+		resp.Trailer[HeaderRestored] = nil
 		resp.Body = x.route.Codec.NewStreamBody(src, x.session, StreamOptions{
 			Restore: opts,
 			Idle:    s.opts.StreamIdleTimeout,
 			OnStall: onStall,
 			OnClose: func(st restore.Stats, ev, dropped int) {
 				x.stats = st
+				resp.Trailer.Set(HeaderRestored, strconv.FormatUint(uint64(st.Restored), 10))
 				s.metrics.StreamEvents.WithLabelValues("forwarded").Add(float64(ev - dropped))
 				s.metrics.StreamEvents.WithLabelValues("dropped").Add(float64(dropped))
 			},

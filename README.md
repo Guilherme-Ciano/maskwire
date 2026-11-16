@@ -126,6 +126,8 @@ How the pieces work:
 - **Foreign-token guard.** Only tokens issued for the current request are restored. Any other well-formed token,
   for example one served by a semantic cache that answered with another customer's response, becomes `[email]`,
   `[cpf]` and so on, and is counted in `maskwire_foreign_tokens_total`.
+- **Restore count on every response.** Buffered responses carry an `X-Maskwire-Restored` header with the number of
+  tokens restored; streamed responses announce the same name as an HTTP trailer and send it after the last event.
 - **Request walking is deny-by-default.** Every string leaf is masked except an explicit skip list: model, roles,
   ids, tool and function names, signed Anthropic thinking blocks and base64 payloads. Inside JSON Schemas (tool
   parameters, `response_format`, Responses `text.format`) only free text is masked: `description`, `title`,
