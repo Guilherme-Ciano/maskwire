@@ -58,30 +58,35 @@ type group struct {
 }
 
 type scanner struct {
-	d      *Detector
-	text   []byte
-	out    []entity.Span
-	groups [maxGroups]group
-	ng     int
-	budget int
-	v6End  int
+	d          *Detector
+	text       []byte
+	out        []entity.Span
+	groups     [maxGroups]group
+	ng         int
+	phoneState PhoneState
+	v6End      int
 }
 
-func (d *Detector) PhoneBudget() int {
-	return d.phoneBudget
+type PhoneState struct {
+	Budget int
+	seen   map[string]bool
+}
+
+func (d *Detector) NewPhoneState() *PhoneState {
+	return &PhoneState{Budget: d.phoneBudget}
 }
 
 func (d *Detector) Detect(dst []entity.Span, text []byte) []entity.Span {
-	budget := d.phoneBudget
-	return d.DetectBudget(dst, text, &budget)
+	st := PhoneState{Budget: d.phoneBudget}
+	return d.DetectWith(dst, text, &st)
 }
 
-func (d *Detector) DetectBudget(dst []entity.Span, text []byte, budget *int) []entity.Span {
-	s := scanner{d: d, text: text, out: dst[:0], budget: *budget}
+func (d *Detector) DetectWith(dst []entity.Span, text []byte, st *PhoneState) []entity.Span {
+	s := scanner{d: d, text: text, out: dst[:0], phoneState: *st}
 	s.emails()
 	s.words()
 	s.flushRun()
-	*budget = s.budget
+	*st = s.phoneState
 	return resolve(s.out)
 }
 
@@ -568,14 +573,20 @@ func (s *scanner) tryPhone(i, end int) bool {
 		return false
 	}
 	stop := s.groups[end].end
-	if s.budget <= 0 {
+	raw := string(s.text[start:stop])
+	valid, cached := s.phoneState.seen[raw]
+	switch {
+	case cached:
+	case s.phoneState.Budget <= 0:
 		if digits < minPhoneDigits {
 			return false
 		}
 		s.emitScore(start, stop, entity.Phone, 0.5)
 		return true
+	default:
+		valid = s.validPhone(raw, plus)
 	}
-	if !s.validPhone(string(s.text[start:stop]), plus) {
+	if !valid {
 		return false
 	}
 	s.emit(start, stop, entity.Phone)
@@ -587,17 +598,23 @@ func (s *scanner) validPhone(raw string, plus bool) bool {
 	if plus {
 		regions = []string{""}
 	}
+	valid := false
 	for _, region := range regions {
-		if s.budget <= 0 {
+		if s.phoneState.Budget <= 0 {
 			return false
 		}
-		s.budget--
+		s.phoneState.Budget--
 		num, err := phonenumbers.Parse(raw, region)
 		if err == nil && phonenumbers.IsValidNumber(num) {
-			return true
+			valid = true
+			break
 		}
 	}
-	return false
+	if s.phoneState.seen == nil {
+		s.phoneState.seen = map[string]bool{}
+	}
+	s.phoneState.seen[raw] = valid
+	return valid
 }
 
 func (s *scanner) emit(start, end int, t entity.Type) {

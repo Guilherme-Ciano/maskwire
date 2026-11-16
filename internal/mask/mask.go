@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Guilherme-Ciano/maskwire/internal/detect"
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
 	"github.com/Guilherme-Ciano/maskwire/internal/jsonx"
 	"github.com/Guilherme-Ciano/maskwire/internal/policy"
@@ -34,8 +35,8 @@ func (e *BlockedError) Error() string {
 }
 
 type SpanDetector interface {
-	DetectBudget(dst []entity.Span, text []byte, phoneBudget *int) []entity.Span
-	PhoneBudget() int
+	DetectWith(dst []entity.Span, text []byte, phones *detect.PhoneState) []entity.Span
+	NewPhoneState() *detect.PhoneState
 }
 
 type Tenant struct {
@@ -101,7 +102,7 @@ type Session struct {
 	blocked  [entity.Count]bool
 	counters Counters
 	variants int
-	budget   int
+	phones   *detect.PhoneState
 }
 
 func (s *Session) SurfaceVariants() int {
@@ -114,7 +115,7 @@ func (e *Engine) NewSession(t *Tenant) *Session {
 		tenant:  t,
 		observe: t.Policy.Mode == policy.Observe,
 		set:     make(map[Suffix]int),
-		budget:  e.det.PhoneBudget(),
+		phones:  e.det.NewPhoneState(),
 	}
 }
 
@@ -144,7 +145,7 @@ func (s *Session) Err() error {
 }
 
 func (s *Session) MaskText(dst, src []byte) ([]byte, error) {
-	s.spans = s.eng.det.DetectBudget(s.spans[:0], src, &s.budget)
+	s.spans = s.eng.det.DetectWith(s.spans[:0], src, s.phones)
 	last := 0
 	for _, sp := range s.spans {
 		if sp.Start < last || sp.End > len(src) {

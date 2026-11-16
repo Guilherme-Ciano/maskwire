@@ -2,7 +2,6 @@ package detect
 
 import (
 	"math/rand/v2"
-	"strings"
 	"testing"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
@@ -151,14 +150,18 @@ func TestIDScoreReflectsContext(t *testing.T) {
 func TestPhoneBudgetIsShared(t *testing.T) {
 	t.Parallel()
 	d := New(Options{PhoneBudget: 2, Regions: []string{"PT"}})
-	budget := d.PhoneBudget()
-	for range 4 {
-		d.DetectBudget(nil, []byte("ligue 912 345 678"), &budget)
+	st := d.NewPhoneState()
+	for _, n := range []string{"912 345 678", "913 345 678", "914 345 678"} {
+		d.DetectWith(nil, []byte("ligue "+n), st)
 	}
-	if budget != 0 {
-		t.Fatalf("budget %d must be consumed across calls", budget)
+	if st.Budget != 0 {
+		t.Fatalf("budget %d must be consumed across calls", st.Budget)
 	}
-	spans := d.DetectBudget(nil, []byte("ligue 912 345 678"), &budget)
+	before := d.DetectWith(nil, []byte("ligue 912 345 678"), st)
+	if len(before) != 1 || before[0].Score < 0.85 {
+		t.Fatalf("a number validated earlier in the request is answered from the cache: %+v", before)
+	}
+	spans := d.DetectWith(nil, []byte("ligue 915 345 678"), st)
 	if len(spans) != 1 || spans[0].Score >= 0.85 {
 		t.Fatalf("exhausted budget must still mask with low score: %+v", spans)
 	}
@@ -167,7 +170,7 @@ func TestPhoneBudgetIsShared(t *testing.T) {
 func TestPhoneBudget(t *testing.T) {
 	t.Parallel()
 	d := New(Options{PhoneBudget: 1, Regions: []string{"PT"}})
-	in := strings.Repeat("ligue 912 345 678 ", 4)
+	in := "ligue 912 345 678 ligue 913 345 678 ligue 914 345 678 ligue 915 345 678 "
 	spans := d.Detect(nil, []byte(in))
 	if len(spans) != 4 {
 		t.Fatalf("got %d spans", len(spans))
