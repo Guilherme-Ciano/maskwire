@@ -25,19 +25,19 @@ type envelope struct {
 	Index        int            `json:"index"`
 	ContentBlock *startBlock    `json:"content_block,omitzero"`
 	Delta        *delta         `json:"delta,omitzero"`
-	Extra        jsontext.Value `json:",unknown"`
+	Extra        jsontext.Value `json:",embed"`
 }
 
 type startBlock struct {
 	Type  string         `json:"type"`
-	Extra jsontext.Value `json:",unknown"`
+	Extra jsontext.Value `json:",embed"`
 }
 
 type delta struct {
 	Type        string         `json:"type"`
 	Text        *string        `json:"text,omitzero"`
 	PartialJSON *string        `json:"partial_json,omitzero"`
-	Extra       jsontext.Value `json:",unknown"`
+	Extra       jsontext.Value `json:",embed"`
 }
 
 type channel struct {

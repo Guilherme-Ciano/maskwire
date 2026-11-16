@@ -21,32 +21,32 @@ const (
 
 type sChunk struct {
 	Choices []sChoice      `json:"choices"`
-	Extra   jsontext.Value `json:",unknown"`
+	Extra   jsontext.Value `json:",embed"`
 }
 
 type sChoice struct {
 	Index        int            `json:"index"`
 	Delta        *sDelta        `json:"delta,omitzero"`
 	FinishReason *string        `json:"finish_reason"`
-	Extra        jsontext.Value `json:",unknown"`
+	Extra        jsontext.Value `json:",embed"`
 }
 
 type sDelta struct {
 	Content   *string        `json:"content,omitzero"`
 	Refusal   *string        `json:"refusal,omitzero"`
 	ToolCalls []sTool        `json:"tool_calls,omitzero"`
-	Extra     jsontext.Value `json:",unknown"`
+	Extra     jsontext.Value `json:",embed"`
 }
 
 type sTool struct {
 	Index    int            `json:"index"`
 	Function *sFunction     `json:"function,omitzero"`
-	Extra    jsontext.Value `json:",unknown"`
+	Extra    jsontext.Value `json:",embed"`
 }
 
 type sFunction struct {
 	Arguments *string        `json:"arguments,omitzero"`
-	Extra     jsontext.Value `json:",unknown"`
+	Extra     jsontext.Value `json:",embed"`
 }
 
 type channelKey struct {

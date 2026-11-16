@@ -57,14 +57,14 @@ type completion struct {
 	Model   string         `json:"model"`
 	Choices []fullChoice   `json:"choices"`
 	Usage   jsontext.Value `json:"usage,omitzero"`
-	Extra   jsontext.Value `json:",unknown"`
+	Extra   jsontext.Value `json:",embed"`
 }
 
 type fullChoice struct {
 	Index        int            `json:"index"`
 	Message      fullMessage    `json:"message"`
 	FinishReason *string        `json:"finish_reason"`
-	Extra        jsontext.Value `json:",unknown"`
+	Extra        jsontext.Value `json:",embed"`
 }
 
 type fullMessage struct {
