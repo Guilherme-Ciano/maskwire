@@ -248,3 +248,52 @@ func FuzzVerify(f *testing.F) {
 		}
 	})
 }
+
+func TestWriterRecoversAfterDiskFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	w := newWriter(t, dir, Options{})
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	ev := sampleEvents(1, "acme", fixed)[0]
+	w.batch(ev)
+	if w.Healthy() || w.Dropped() != 1 {
+		t.Fatalf(
+			"an unwritable directory must mark the writer unhealthy (healthy=%v dropped=%d)",
+			w.Healthy(),
+			w.Dropped(),
+		)
+	}
+	w.maintain()
+	if w.Healthy() {
+		t.Fatal("the probe must keep failing while the directory is unwritable")
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.maintain()
+	if !w.Healthy() {
+		t.Fatal("the writer must recover once the directory is writable again")
+	}
+	w.batch(ev)
+	w.closeAll()
+	if _, err := VerifyDir(dir, sealer()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIdleChainsAreClosed(t *testing.T) {
+	t.Parallel()
+	now := fixed
+	w := newWriter(t, t.TempDir(), Options{Now: func() time.Time { return now }})
+	w.batch(sampleEvents(1, "acme", fixed)[0])
+	if len(w.chains) != 1 {
+		t.Fatalf("chains %d", len(w.chains))
+	}
+	now = now.Add(idleClose + time.Second)
+	w.maintain()
+	if len(w.chains) != 0 {
+		t.Fatal("idle chains must be closed")
+	}
+}

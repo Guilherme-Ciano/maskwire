@@ -27,9 +27,9 @@ test: ## Unit and integration tests with the race detector
 	$(GO) test -race -shuffle=on -count=1 ./...
 
 .PHONY: cover
-cover: ## Coverage report
-	$(GO) test -race -covermode=atomic -coverprofile=cover.out ./...
-	$(GO) tool cover -func=cover.out | tail -1
+cover: ## Coverage report and gate (80% of internal packages)
+	$(GO) test -race -covermode=atomic -coverpkg=./internal/... -coverprofile=cover.out ./...
+	$(GO) run ./internal/tools/covergate -profile cover.out -min 80
 
 .PHONY: fuzz
 fuzz: ## Run every fuzz target for FUZZTIME
