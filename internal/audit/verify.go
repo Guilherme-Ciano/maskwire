@@ -163,8 +163,9 @@ func checkLink(cur, prev *FileResult) error {
 	return nil
 }
 
-func VerifyDir(dir string, sealer *Sealer) (Report, error) {
+func VerifyDir(dir string, sealer *Sealer, anchors Anchors) (Report, error) {
 	rep := Report{Head: map[string]string{}}
+	seen := map[string]bool{}
 	tenants, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
 		return rep, fmt.Errorf("list tenants: %w", err)
@@ -185,8 +186,18 @@ func VerifyDir(dir string, sealer *Sealer) (Report, error) {
 			if err := checkLink(&res, prev); err != nil {
 				return rep, err
 			}
+			key := anchorKey(filepath.Base(t), dayOf(path))
+			if err := anchors.check(key, &res); err != nil {
+				return rep, err
+			}
+			seen[key] = true
 			rep.Head[path] = hashPrefix + hex.EncodeToString(res.Head[:])
 			prev = &res
+		}
+	}
+	for file := range anchors {
+		if !seen[file] {
+			return rep, &ChainError{filepath.Join(dir, file), 0, "anchored file is missing"}
 		}
 	}
 	return rep, nil

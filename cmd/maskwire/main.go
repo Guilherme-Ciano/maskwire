@@ -207,7 +207,7 @@ func auditSealer(path string) (*audit.Sealer, error) {
 
 func auditCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "audit", Short: "Audit log tools"}
-	var dir, path string
+	var dir, path, anchorsPath string
 	verify := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify the HMAC chain of every tenant and day file under the audit directory",
@@ -216,7 +216,13 @@ func auditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rep, err := audit.VerifyDir(dir, sealer)
+			var anchors audit.Anchors
+			if anchorsPath != "" {
+				if anchors, err = audit.ReadAnchors(anchorsPath); err != nil {
+					return err
+				}
+			}
+			rep, err := audit.VerifyDir(dir, sealer, anchors)
 			if err != nil {
 				return err
 			}
@@ -233,6 +239,8 @@ func auditCmd() *cobra.Command {
 		},
 	}
 	verify.Flags().StringVar(&dir, "dir", "audit", "audit directory")
+	verify.Flags().
+		StringVar(&anchorsPath, "anchors", "", "anchor file written by audit.anchor_file; detects truncated or deleted files")
 	verify.Flags().StringVar(&path, "config", "", "config file holding the master key (or MASKWIRE_CONFIG / env)")
 	cmd.AddCommand(verify)
 	return cmd

@@ -47,15 +47,18 @@ type Options struct {
 	Buffer int
 	OnFull OnFull
 	Now    func() time.Time
+
+	AnchorPath string
 }
 
 type chain struct {
-	tenant string
-	day    string
-	f      *os.File
-	bw     *bufio.Writer
-	prev   [32]byte
-	used   time.Time
+	tenant   string
+	day      string
+	f        *os.File
+	bw       *bufio.Writer
+	prev     [32]byte
+	anchored [32]byte
+	used     time.Time
 }
 
 type Writer struct {
@@ -232,6 +235,7 @@ func (w *Writer) sync(touched map[*chain]struct{}) {
 }
 
 func (w *Writer) maintain() {
+	w.anchor()
 	now := w.opts.Now()
 	for key, c := range w.chains {
 		if now.Sub(c.used) > idleClose {
@@ -415,6 +419,7 @@ func (w *Writer) closeChain(c *chain) {
 }
 
 func (w *Writer) closeAll() {
+	w.anchor()
 	for key, c := range w.chains {
 		w.closeChain(c)
 		delete(w.chains, key)

@@ -751,7 +751,7 @@ func TestAuditChainAfterTraffic(t *testing.T) {
 	for h.app.auditor.Written() < 3 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	rep, err := audit.VerifyDir(h.cfg.Audit.Dir, h.sealer())
+	rep, err := audit.VerifyDir(h.cfg.Audit.Dir, h.sealer(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

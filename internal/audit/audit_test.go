@@ -38,7 +38,12 @@ func newWriter(t *testing.T, dir string, o Options) *Writer {
 
 func runWriter(t *testing.T, dir string, events []Event) *Writer {
 	t.Helper()
-	w := newWriter(t, dir, Options{})
+	return runWriterWith(t, dir, Options{}, events)
+}
+
+func runWriterWith(t *testing.T, dir string, o Options, events []Event) *Writer {
+	t.Helper()
+	w := newWriter(t, dir, o)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
@@ -82,7 +87,7 @@ func TestChainAndVerify(t *testing.T) {
 	runWriter(t, dir, append(sampleEvents(5, "acme", fixed), sampleEvents(3, "globex", fixed)...))
 	runWriter(t, dir, sampleEvents(2, "acme", fixed))
 	runWriter(t, dir, sampleEvents(2, "acme", fixed.Add(24*time.Hour)))
-	rep, err := VerifyDir(dir, sealer())
+	rep, err := VerifyDir(dir, sealer(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +101,7 @@ func TestChainAndVerify(t *testing.T) {
 	if !strings.Contains(string(data), `"detections":{"EMAIL":4}`) || strings.Contains(string(data), "@") {
 		t.Fatalf("unexpected content: %s", data)
 	}
-	if _, err := VerifyDir(dir, NewSealer(bytes.Repeat([]byte{1}, 32))); !errors.Is(err, ErrBrokenChain) {
+	if _, err := VerifyDir(dir, NewSealer(bytes.Repeat([]byte{1}, 32)), nil); !errors.Is(err, ErrBrokenChain) {
 		t.Fatalf("wrong key must fail, got %v", err)
 	}
 }
@@ -141,7 +146,7 @@ func TestTamperDetection(t *testing.T) {
 			runWriter(t, dir, sampleEvents(4, "acme", fixed))
 			runWriter(t, dir, sampleEvents(2, "acme", fixed.Add(24*time.Hour)))
 			mutateFile(t, FilePath(dir, "acme", tc.file), tc.mutate)
-			_, err := VerifyDir(dir, sealer())
+			_, err := VerifyDir(dir, sealer(), nil)
 			var ce *ChainError
 			if !errors.As(err, &ce) || !errors.Is(err, ErrBrokenChain) {
 				t.Fatalf("expected chain error, got %v", err)
@@ -158,7 +163,7 @@ func TestMissingPreviousDayDetected(t *testing.T) {
 	if err := os.Remove(FilePath(dir, "acme", "2026-11-11")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyDir(dir, sealer()); !errors.Is(err, ErrBrokenChain) {
+	if _, err := VerifyDir(dir, sealer(), nil); !errors.Is(err, ErrBrokenChain) {
 		t.Fatalf("deleted day must be detected, got %v", err)
 	}
 }
@@ -278,7 +283,7 @@ func TestWriterRecoversAfterDiskFailure(t *testing.T) {
 	}
 	w.batch(ev)
 	w.closeAll()
-	if _, err := VerifyDir(dir, sealer()); err != nil {
+	if _, err := VerifyDir(dir, sealer(), nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -295,5 +300,52 @@ func TestIdleChainsAreClosed(t *testing.T) {
 	w.maintain()
 	if len(w.chains) != 0 {
 		t.Fatal("idle chains must be closed")
+	}
+}
+
+func TestAnchorsDetectTruncationAndDeletion(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	anchorPath := filepath.Join(t.TempDir(), "anchors.jsonl")
+	o := Options{AnchorPath: anchorPath}
+	runWriterWith(t, dir, o, append(sampleEvents(5, "acme", fixed), sampleEvents(2, "globex", fixed)...))
+	runWriterWith(t, dir, o, sampleEvents(3, "acme", fixed))
+	anchors, err := ReadAnchors(anchorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anchors["acme/2026-11-11.jsonl"]) != 2 || len(anchors["globex/2026-11-11.jsonl"]) != 1 {
+		t.Fatalf("anchors %v", anchors)
+	}
+	if _, err := VerifyDir(dir, sealer(), anchors); err != nil {
+		t.Fatal(err)
+	}
+	mutateFile(t, FilePath(dir, "acme", "2026-11-11"), func(l []string) []string { return l[:len(l)-2] })
+	if _, err := VerifyDir(dir, sealer(), nil); err != nil {
+		t.Fatalf("truncation is invisible without anchors, got %v", err)
+	}
+	_, err = VerifyDir(dir, sealer(), anchors)
+	if !errors.Is(err, ErrBrokenChain) || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("truncation with anchors: %v", err)
+	}
+	dir2 := t.TempDir()
+	anchor2 := filepath.Join(t.TempDir(), "anchors.jsonl")
+	runWriterWith(t, dir2, Options{AnchorPath: anchor2}, sampleEvents(2, "globex", fixed))
+	if err := os.Remove(FilePath(dir2, "globex", "2026-11-11")); err != nil {
+		t.Fatal(err)
+	}
+	anchors2, err := ReadAnchors(anchor2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyDir(dir2, sealer(), anchors2); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("deleted file with anchors: %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.jsonl")
+	if err := os.WriteFile(bad, []byte("{\"file\":\"\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadAnchors(bad); !errors.Is(err, ErrAnchor) {
+		t.Fatalf("malformed anchors: %v", err)
 	}
 }

@@ -79,6 +79,8 @@ type Audit struct {
 	Dir     string `koanf:"dir"`
 	OnFull  string `koanf:"on_full"`
 	Buffer  int    `koanf:"buffer"`
+
+	AnchorFile string `koanf:"anchor_file"`
 }
 
 type Detect struct {

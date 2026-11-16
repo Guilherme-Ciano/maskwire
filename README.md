@@ -199,6 +199,7 @@ example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.ya
 | `keys.version` | `1` | changing it rotates every tenant's tokens |
 | `audit.enabled` / `audit.dir` | `true` / `audit` | HMAC-chained JSONL per tenant and UTC day |
 | `audit.on_full` | `block` | `block` waits for the writer; `drop` counts and drops |
+| `audit.anchor_file` | | append chain heads here every 5 s for `audit verify --anchors`; keep it off the audit volume |
 | `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
 | `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that, phone-shaped runs (with `+`, parentheses or a keyword) are masked unvalidated |
 | `routes[]` | | `name`, `path`, `upstream`, `codec`, `synthesize_stream`. Codecs: `openai` (Chat Completions), `openai-responses` (Responses API, including streamed events), `openai-embeddings` (masks `input` before it is embedded), `anthropic` (Messages and `count_tokens`), `passthrough` (GET only, no body, for routes such as `/v1/models`; still needs the tenant key) |
@@ -257,8 +258,17 @@ previous day's chain, so a deleted or truncated earlier day is detected.
 maskwire audit verify --dir audit --config maskwire.yaml
 ```
 
-`verify` prints each file's head hash. Truncating the newest day, or deleting it entirely, can only be detected
-against a head you stored elsewhere, so ship those heads to separate storage if that matters to you.
+Truncating the newest day, or deleting it entirely, can only be detected against a head stored somewhere else.
+Set `audit.anchor_file` to a path on separate storage (another volume, an append-only mount, or a file a log
+shipper forwards): every 5 seconds, and on shutdown, maskwire appends the current head of each changed chain to
+it. Then verify against it:
+
+```bash
+maskwire audit verify --dir audit --config maskwire.yaml --anchors /mnt/worm/maskwire-anchors.jsonl
+```
+
+Any anchored head that is no longer in its file, or an anchored file that is gone, fails verification. Records
+written in the last 5 seconds before an attack are not covered.
 
 ## Benchmarks
 

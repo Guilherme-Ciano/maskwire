@@ -82,7 +82,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, err
 		}
 		w, err := audit.NewWriter(
-			audit.Options{Dir: cfg.Audit.Dir, Key: auditKey, Buffer: cfg.Audit.Buffer, OnFull: onFull},
+			audit.Options{
+				Dir: cfg.Audit.Dir, Key: auditKey, Buffer: cfg.Audit.Buffer, OnFull: onFull,
+				AnchorPath: cfg.Audit.AnchorFile,
+			},
 			log,
 		)
 		clear(auditKey)
