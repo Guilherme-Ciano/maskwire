@@ -28,9 +28,9 @@ maskwire only restores tokens issued for the current request; anything else come
 In the demo you can watch it happen.
 
 Measured on one machine (AMD Ryzen 5 4600G, loopback, mock upstream, details in the repo):
-• detection: ~260 MB/s per core on clean text, zero allocations
-• added latency at 2,000 req/s with a 4 KB prompt: +0.31 ms p50, +1.1 ms p99, zero errors
-• streaming: +0.33 ms to the first byte
+• detection: ~400 MB/s per core on clean text, zero allocations
+• added latency at 2,000 req/s with a 4 KB prompt: +0.22 ms p50, +0.52 ms p99, zero errors
+• streaming: +0.29 ms to the first byte
 
 What it is not: a GDPR or AI Act compliance product. Pseudonymised data is still personal data, and v0.1 does not
 detect names. The README spells that out.

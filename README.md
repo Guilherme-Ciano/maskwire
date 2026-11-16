@@ -314,7 +314,7 @@ written in the last 5 seconds before an attack are not covered.
 ## Benchmarks
 
 <!-- bench:start -->
-Measured on 2026-11-12, commit `bfa5642`. Hardware: AMD Ryzen 5 4600G (6C/12T), 16 GB RAM, Linux 7.3.3-cachyos,
+Measured on 2026-11-16, commit `0b41bb2`. Hardware: AMD Ryzen 5 4600G (6C/12T), 16 GB RAM, Linux 7.3.4-cachyos,
 Go 1.27.4. CPU governor `powersave` with boost on (changing it needs root), and a desktop session was running, so
 treat the numbers as a lower bound for a tuned server. Everything runs on one host over loopback against `mockllm`,
 a Go mock upstream with zero latency. These are proxy overhead numbers, not internet latency.
@@ -326,45 +326,50 @@ maskwire and mockllm each pinned to 4 cores with `GOMAXPROCS=4`; the audit log w
 
 | rate | direct p50 | direct p99 | via maskwire p50 | via maskwire p99 | **added p50** | **added p99** | maskwire p99.9 | errors |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 500 req/s | 0.26 ms | 0.56 ms | 0.63 ms | 2.14 ms | **+0.37 ms** | **+1.59 ms** | 4.4 ms | 0 |
-| 1,000 req/s | 0.17 ms | 0.42 ms | 0.47 ms | 1.13 ms | **+0.29 ms** | **+0.71 ms** | 1.9 ms | 0 |
-| 2,000 req/s | 0.18 ms | 0.46 ms | 0.49 ms | 1.56 ms | **+0.31 ms** | **+1.10 ms** | 6.0 ms | 0 |
-| 4,000 req/s | 0.19 ms | 0.82 ms | 0.47 ms | 2.08 ms | **+0.28 ms** | **+1.27 ms** | 8.2 ms | 0 |
+| 500 req/s | 0.21 ms | 0.60 ms | 0.48 ms | 1.03 ms | **+0.27 ms** | **+0.43 ms** | 2.1 ms | 0 |
+| 1,000 req/s | 0.19 ms | 0.35 ms | 0.39 ms | 0.84 ms | **+0.20 ms** | **+0.50 ms** | 1.3 ms | 0 |
+| 2,000 req/s | 0.18 ms | 0.45 ms | 0.40 ms | 0.97 ms | **+0.22 ms** | **+0.52 ms** | 1.7 ms | 0 |
+| 4,000 req/s | 0.17 ms | 0.65 ms | 0.39 ms | 2.24 ms | **+0.22 ms** | **+1.59 ms** | 7.4 ms | 0 |
 
-Targets were p50 < 0.5 ms and p99 < 2 ms added; both hold at every rate tested. maskwire used 0.39-0.54 CPU-ms
-per request, including both HTTP hops, JSON parsing, masking, restore and the audit write.
+Targets were p50 < 0.5 ms and p99 < 2 ms added; both hold at every rate tested. At 4,000 req/s the four pinned
+cores are close to saturation and the tail grows. maskwire used 0.36-0.47 CPU-ms per request, including both HTTP
+hops, JSON parsing, masking, restore and the audit write.
 
 **Streaming.** The same prompt with `stream: true`; mockllm streams the echo as about 1,000 SSE events of 1-7 bytes
 each, with no delay between them. 300 sequential requests.
 
 | | time to first byte p50 | p99 | full stream p50 | p99 |
 |---|---:|---:|---:|---:|
-| direct | 0.24 ms | 0.88 ms | 8.1 ms | 9.6 ms |
-| via maskwire | 0.57 ms | 1.26 ms | 11.8 ms | 17.1 ms |
+| direct | 0.22 ms | 0.70 ms | 7.7 ms | 9.4 ms |
+| via maskwire | 0.51 ms | 1.62 ms | 10.4 ms | 13.5 ms |
 
-maskwire adds about 0.33 ms before the first byte, and about 4 µs per SSE event (each event is decoded,
-restored and re-encoded). A real model emits tens of events per second, so per-event cost is negligible next to
-generation time.
+maskwire adds about 0.29 ms before the first byte, and under 3 µs per SSE event (each event is decoded, restored
+and re-encoded; events with nothing to restore are forwarded unchanged). A real model emits tens of events per
+second, so per-event cost is negligible next to generation time.
 
 **Micro-benchmarks**, one core (`-cpu 1`), 6 runs, benchstat median ± 95% CI
-([raw](bench/results/raw/3824307.txt), [benchstat](bench/results/raw/3824307-benchstat.txt)):
+([raw](bench/results/raw/0b41bb2.txt), [benchstat against the previous run](bench/results/raw/0b41bb2-benchstat.txt)):
 
-| benchmark | result | allocs/op |
-|---|---:|---:|
-| Detect, clean text, 4 KB | 15.8 µs, **259 MB/s** ± 1% | **0** |
-| Detect, clean text, 64 KB | 247 µs, 265 MB/s ± 2% | 0 |
-| Detect, dense text (an entity every ~30 bytes), 4 KB | 436 µs, 9.4 MB/s | 966 |
-| Mask a 4 KB OpenAI request (walk, detect, tokenise) | 62 µs ± 4% | 82 |
-| Restore a 4 KB OpenAI response | 25 µs ± 4% | 12 |
-| Streaming restore, 64-byte chunks | 292 MB/s ± 4% | 1 per stream |
-| Streaming restore, 8-byte chunks | 102 MB/s ± 2% | 1 per stream |
-| JSON splice, 1.6 MB body with nothing to mask | 304 MB/s ± 1% | 0 |
+| benchmark | result | allocs/op | vs 2026-11-12 |
+|---|---:|---:|---:|
+| Detect, clean text, 4 KB | 10.1 µs, **407 MB/s** ± 1% | **0** | +57% throughput |
+| Detect, clean text, 64 KB | 159 µs, 413 MB/s ± 3% | 0 | +56% |
+| Detect, dense text (an entity every ~30 bytes), 4 KB | 97 µs, 42 MB/s | 152 | 4.5x |
+| Mask a 4 KB OpenAI request (walk, detect, tokenise) | 45 µs ± 2% | 66 | -28% time |
+| Restore a 4 KB OpenAI response | 30 µs ± 3% | 19 | +18% time |
+| Streaming restore, 64-byte chunks | 202 MB/s ± 1% | 1 per stream | -31% |
+| Streaming restore, 8-byte chunks | 118 MB/s ± 1% | 1 per stream | +15% |
+| JSON splice, 1.6 MB body with nothing to mask | 320 MB/s ± 1% | 0 | +5% |
+| Full proxy round trip in process (`internal/app`) | 239 µs ± 2% | 403 | new |
 
-The detection target was 150 MB/s per core on ordinary text. Dense text is slow because every phone candidate is
-validated with libphonenumber; the per-request budget (`detect.phone_budget`) caps that cost.
+The detection target was 150 MB/s per core on ordinary text. The restore rows got slower on purpose: the matcher
+now accepts the forms models actually produce (lower case, other brackets, Markdown escapes, missing brackets,
+quoted numbers) and only restores the relaxed forms for suffixes issued in the request.
 
-Reproduce: `make bench`, then `make build && cd bench && taskset -c 0-3 go run ./cmd/loadgen`. Full report:
-[`bench/results/2026-11-12-ryzen-5-bfa5642/report.md`](bench/results/2026-11-12-ryzen-5-bfa5642/report.md).
+Reproduce: `make bench`, then `make build && cd bench && taskset -c 0-3 go run ./cmd/loadgen -rates 500,1000,2000,4000`.
+Full report: [`bench/results/2026-11-16-ryzen-5-0b41bb2/report.md`](bench/results/2026-11-16-ryzen-5-0b41bb2/report.md)
+(the "dirty" flag there is the uncommitted raw benchmark file of this run). Earlier run:
+[`2026-11-12`](bench/results/2026-11-12-ryzen-5-bfa5642/report.md).
 <!-- bench:end -->
 
 ## Development
