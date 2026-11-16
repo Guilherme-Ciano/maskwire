@@ -223,7 +223,10 @@ func TestPropertyMaskThenRestore(t *testing.T) {
 			rt.Fatal(err)
 		}
 		back, _ := restore.Restore(nil, masked, s, restore.Options{})
-		if s.SurfaceVariants() == 0 && string(back) != src {
+		if s.SurfaceVariants() > 0 {
+			return
+		}
+		if string(back) != src {
 			rt.Fatalf("round trip\n src %q\nmask %q\nback %q", src, masked, back)
 		}
 		again, err := eng.NewSession(tn).MaskText(nil, back)

@@ -14,6 +14,14 @@ import (
 type fakeSet map[string][]byte
 
 func (f fakeSet) Lookup(t entity.Type, suffix []byte) ([]byte, bool) {
+	if t == entity.Unknown {
+		for k, v := range f {
+			if strings.HasSuffix(k, "_"+string(suffix)) {
+				return v, true
+			}
+		}
+		return nil, false
+	}
 	var key [32]byte
 	k := append(append(append(key[:0], t.Label()...), '_'), suffix...)
 	v, ok := f[string(k)]
@@ -40,7 +48,8 @@ func TestRestore(t *testing.T) {
 		{"foreign [EMAIL_ZZZZZZ] x", "foreign [email] x"},
 		{"wrong label [CPF_K7Q2MA]", "wrong label [cpf]"},
 		{"redacted [REDACTED_EMAIL] stays", "redacted [REDACTED_EMAIL] stays"},
-		{"unknown [FOO_K7Q2MA] stays", "unknown [FOO_K7Q2MA] stays"},
+		{"unknown label [FOO_K7Q2MA] restores", "unknown label ana@empresa.pt restores"},
+		{"unknown label [FOO_ZZZZZZ] stays", "unknown label [FOO_ZZZZZZ] stays"},
 		{"short [EMAIL_K7Q] stays", "short [EMAIL_K7Q] stays"},
 		{"bad crock [EMAIL_K7Q2MI]", "bad crock [EMAIL_K7Q2MI]"},
 		{"trailing [EMAIL_K7Q2", "trailing [EMAIL_K7Q2"},
@@ -51,6 +60,47 @@ func TestRestore(t *testing.T) {
 		if string(got) != tc.want {
 			t.Errorf("%q: got %q want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestRelaxedVariants(t *testing.T) {
+	t.Parallel()
+	restored := []string{
+		"EMAIL_K7Q2MA", "[EMAIL K7Q2MA]", "[EMAIL-K7Q2MA]", "(EMAIL_K7Q2MA)", "<EMAIL_K7Q2MA>", "{EMAIL_K7Q2MA}",
+		"\u3010EMAIL_K7Q2MA\u3011", "\u3014EMAIL_K7Q2MA\u3015", "[E-MAIL_K7Q2MA]", "[E-mail_K7Q2MA]", "[CORREO_K7Q2MA]",
+		"[EMAIL__K7Q2MA]", "%5BEMAIL_K7Q2MA%5D", "%5bemail_k7q2ma%5d", "[EMAIL_K7Q2MA", "EMAIL K7Q2MA",
+	}
+	for _, v := range restored {
+		in := "to " + v + " today"
+		got, _ := Restore(nil, []byte(in), set, Options{})
+		if string(got) != "to ana@empresa.pt today" {
+			t.Errorf("%q: got %q", in, got)
+		}
+	}
+	untouched := []string{
+		"EMAIL ADDRESS please", "THE REPORT IS READY", "Hello World", "[EMAIL ADDRESS]", "EMAIL_ZZZZZZ",
+		"xEMAIL_K7Q2MA", "EMAIL_K7Q2MAX", "(see EMAIL_ZZZZZZ)", "[REDACTED_EMAIL]", "email_k7q2ma",
+	}
+	for _, v := range untouched {
+		got, st := Restore(nil, []byte(v), set, Options{})
+		if string(got) != v || st.Foreign != 0 {
+			t.Errorf("%q must stay: got %q (%+v)", v, got, st)
+		}
+	}
+	got, _ := Restore(nil, []byte(`{"to":"\u005bEMAIL_K7Q2MA\u005d"}`), set, Options{Encoding: JSONString})
+	if string(got) != `{"to":"ana@empresa.pt"}` {
+		t.Errorf("json unicode escape: got %s", got)
+	}
+}
+
+func TestBareTokenAtEndOfStream(t *testing.T) {
+	t.Parallel()
+	s := NewStream(set, Options{})
+	out := s.Feed(nil, []byte("contact EMAIL_K7"))
+	out = s.Feed(out, []byte("Q2MA"))
+	out = s.Flush(out)
+	if string(out) != "contact ana@empresa.pt" {
+		t.Fatalf("got %q", out)
 	}
 }
 
@@ -92,6 +142,8 @@ func TestSplitAtEveryByte(t *testing.T) {
 		"Dear [EMAIL_K7Q2MA], your CPF [CPF_7H3JX9] and ip \\[IP\\_ABCDE\\] were seen; foreign [EMAIL_ZZZZZZ] [[",
 		"[[[EMAIL_K7Q2MA]]] [ CPF_7H3JX9 ] [cpf_7h3jx9]",
 		"end with partial [EMAIL_K7Q2",
+		"bare EMAIL_K7Q2MA and (CPF 7H3JX9) and %5BIP_ABCDE%5D, EMAIL ADDRESS, THE END EMAIL_K7Q2MA",
+		"\u3010EMAIL_K7Q2MA\u3011 <CPF-7H3JX9> {IP_ABCDE} [EMAIL_K7Q2MA",
 	}
 	for _, in := range inputs {
 		for _, enc := range []Encoding{Raw, JSONString} {
@@ -193,13 +245,15 @@ func FuzzMatcher(f *testing.F) {
 	f.Add([]byte("[EMAIL_K7Q2MA]"))
 	f.Add([]byte(`\[ IBAN\_ABCDEFGHJK \]`))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		for _, esc := range []bool{true, false} {
-			m := matchToken(b, esc)
-			if m.res == full && (m.n > len(b) || m.n > MaxTokenLen) {
-				t.Fatalf("bad length %d", m.n)
-			}
-			if m.res == partial && len(b) >= MaxTokenLen {
-				t.Fatalf("partial on %d bytes", len(b))
+		for _, json := range []bool{true, false} {
+			for _, eof := range []bool{true, false} {
+				m := matchToken(b, ' ', json, eof)
+				if m.res == full && (m.n > len(b) || m.n >= MaxTokenLen) {
+					t.Fatalf("bad length %d", m.n)
+				}
+				if m.res == partial && (eof || len(b) >= MaxTokenLen) {
+					t.Fatalf("partial on %d bytes (eof=%v)", len(b), eof)
+				}
 			}
 		}
 	})

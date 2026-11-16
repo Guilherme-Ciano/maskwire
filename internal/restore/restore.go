@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	MaxTokenLen = 32
+	MaxTokenLen = 48
 	minSuffix   = 5
 )
 
@@ -60,23 +60,100 @@ const (
 	full
 )
 
+type opener uint8
+
+const (
+	openNone opener = iota
+	openBracket
+	openEscBracket
+	openAngle
+	openParen
+	openBrace
+	openLenticular
+	openTortoise
+	openPercent
+	openUnicode
+)
+
+const (
+	maxRelaxedLabel = 12
+	maxSeparators   = 2
+)
+
 type match struct {
-	res    result
-	n      int
-	typ    entity.Type
-	suffix [token.MaxLength]byte
-	slen   int
+	res       result
+	n         int
+	typ       entity.Type
+	canonical bool
+	suffix    [token.MaxLength]byte
+	slen      int
 }
 
 func letter(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 }
 
+func wordByte(c byte) bool {
+	return letter(c) || (c >= '0' && c <= '9') || c == '_'
+}
+
+func closerFor(o opener) string {
+	switch o {
+	case openBracket, openEscBracket:
+		return "]"
+	case openAngle:
+		return ">"
+	case openParen:
+		return ")"
+	case openBrace:
+		return "}"
+	case openLenticular:
+		return "\xe3\x80\x91"
+	case openTortoise:
+		return "\xe3\x80\x95"
+	case openPercent:
+		return "%5d"
+	case openUnicode:
+		return "\\u005d"
+	case openNone:
+		return ""
+	}
+	return ""
+}
+
+func aliasType(label []byte) (entity.Type, bool) {
+	var buf [maxRelaxedLabel]byte
+	k := 0
+	for _, c := range label {
+		if c == '-' {
+			continue
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		buf[k] = c
+		k++
+	}
+	if t, ok := entity.LabelFold(buf[:k]); ok {
+		return t, true
+	}
+	switch string(buf[:k]) {
+	case "MAIL", "CORREO", "COURRIEL", "CORREIO":
+		return entity.Email, true
+	case "TEL", "TELEFONE", "TELEFONO", "TELEPHONE", "TELEFON", "FONE", "MOBILE", "CELULAR":
+		return entity.Phone, true
+	}
+	return entity.Unknown, false
+}
+
 type matcher struct {
-	b       []byte
-	i       int
-	escapes bool
-	m       match
+	b    []byte
+	i    int
+	prev byte
+	json bool
+	eof  bool
+	open opener
+	m    match
 }
 
 func (x *matcher) at(k int) (byte, bool) {
@@ -86,67 +163,166 @@ func (x *matcher) at(k int) (byte, bool) {
 	return 0, false
 }
 
-func (x *matcher) expect(want byte) result {
+func (x *matcher) seq(want string) result {
+	for k := range len(want) {
+		c, ok := x.at(x.i + k)
+		if !ok {
+			if x.eof {
+				return reject
+			}
+			return partial
+		}
+		w := want[k]
+		if c >= 'A' && c <= 'Z' && w >= 'a' && w <= 'z' {
+			c += 'a' - 'A'
+		}
+		if c != w {
+			return reject
+		}
+	}
+	x.i += len(want)
+	return full
+}
+
+func (x *matcher) opening() result {
 	c, ok := x.at(x.i)
 	if !ok {
-		return partial
+		return x.more()
 	}
-	if c == want {
-		x.i++
+	switch {
+	case c == '[':
+		x.open, x.i = openBracket, x.i+1
 		return full
-	}
-	if !x.escapes || c != '\\' {
-		return reject
-	}
-	c2, ok := x.at(x.i + 1)
-	if !ok {
-		return partial
-	}
-	if c2 == want {
-		x.i += 2
+	case c == '<':
+		x.open, x.i = openAngle, x.i+1
+		return full
+	case c == '(':
+		x.open, x.i = openParen, x.i+1
+		return full
+	case c == '{':
+		x.open, x.i = openBrace, x.i+1
+		return full
+	case c == '%':
+		x.open = openPercent
+		return x.seq("%5b")
+	case c == 0xE3:
+		return x.cjkOpening()
+	case c == '\\' && x.json:
+		x.open = openUnicode
+		return x.seq("\\u005b")
+	case c == '\\':
+		x.open = openEscBracket
+		return x.seq("\\[")
+	case c >= 'A' && c <= 'Z' && !wordByte(x.prev):
+		x.open = openNone
 		return full
 	}
 	return reject
 }
 
-func (x *matcher) optionalSpace() result {
+func (x *matcher) cjkOpening() result {
+	if r := x.seq("\xe3\x80"); r != full {
+		return r
+	}
 	c, ok := x.at(x.i)
 	if !ok {
+		if x.eof {
+			return reject
+		}
 		return partial
 	}
-	if c == ' ' {
-		x.i++
+	switch c {
+	case 0x90:
+		x.open = openLenticular
+	case 0x94:
+		x.open = openTortoise
+	default:
+		return reject
 	}
+	x.i++
 	return full
 }
 
-func (x *matcher) label() result {
+func (x *matcher) more() result {
+	if x.eof {
+		return reject
+	}
+	return partial
+}
+
+func (x *matcher) space() {
+	if c, ok := x.at(x.i); ok && c == ' ' && x.open != openNone {
+		x.i++
+	}
+}
+
+func (x *matcher) label() (r result, lbl []byte) {
 	start := x.i
 	for {
 		c, ok := x.at(x.i)
 		if !ok {
-			return partial
+			return x.more(), nil
 		}
-		if !letter(c) {
+		isLabel := letter(c) || (c == '-' && x.i > start)
+		if x.open == openNone && c >= 'a' && c <= 'z' {
+			isLabel = false
+		}
+		if !isLabel {
 			break
 		}
 		x.i++
-		if x.i-start > entity.MaxLabelLen {
-			return reject
+		if x.i-start > maxRelaxedLabel {
+			return reject, nil
 		}
 	}
-	t, ok := entity.LabelFold(x.b[start:x.i])
-	if !ok {
-		return reject
+	if x.i == start {
+		return reject, nil
 	}
-	x.m.typ = t
-	return full
+	return full, x.b[start:x.i]
+}
+
+func (x *matcher) separator() (result, bool) {
+	start := x.i
+	plain := false
+	for range maxSeparators {
+		c, ok := x.at(x.i)
+		if !ok {
+			return x.more(), false
+		}
+		switch {
+		case c == '_' || c == '-' || c == ' ':
+			x.i++
+		case c == '\\' && !x.json:
+			c2, ok2 := x.at(x.i + 1)
+			if !ok2 {
+				return x.more(), false
+			}
+			if c2 != '_' {
+				return x.sepDone(start, plain)
+			}
+			x.i += 2
+		default:
+			return x.sepDone(start, plain)
+		}
+		plain = x.i-start == 1 && x.b[start] == '_' || x.i-start == 2 && x.b[start] == '\\'
+	}
+	return x.sepDone(start, plain)
+}
+
+func (x *matcher) sepDone(start int, plain bool) (result, bool) {
+	if x.i == start {
+		return reject, false
+	}
+	return full, plain
 }
 
 func (x *matcher) suffix() result {
 	for {
 		c, ok := x.at(x.i)
 		if !ok {
+			if x.eof {
+				break
+			}
 			return partial
 		}
 		u, isCrock := token.CrockfordFold(c)
@@ -163,10 +339,44 @@ func (x *matcher) suffix() result {
 	if x.m.slen < minSuffix {
 		return reject
 	}
-	if c, _ := x.at(x.i); c == ' ' {
-		x.i++
+	return full
+}
+
+func (x *matcher) boundaryAfter() result {
+	c, ok := x.at(x.i)
+	if !ok {
+		if x.eof {
+			return full
+		}
+		return partial
+	}
+	if wordByte(c) {
+		return reject
 	}
 	return full
+}
+
+func (x *matcher) closing() (result, bool) {
+	if x.open == openNone {
+		return x.boundaryAfter(), false
+	}
+	beforeSpace := x.i
+	x.space()
+	want := closerFor(x.open)
+	r := x.seq(want)
+	if r == full {
+		return full, true
+	}
+	if x.open == openEscBracket && r == reject {
+		if r2 := x.seq("\\]"); r2 != reject {
+			return r2, r2 == full
+		}
+	}
+	if r == partial {
+		return partial, false
+	}
+	x.i = beforeSpace
+	return x.boundaryAfter(), false
 }
 
 func (x *matcher) done(r result) match {
@@ -177,24 +387,42 @@ func (x *matcher) done(r result) match {
 	return x.m
 }
 
-func matchToken(b []byte, escapes bool) match {
-	x := matcher{b: b, escapes: escapes}
-	if r := x.expect('['); r != full {
+func matchToken(b []byte, prev byte, json, eof bool) match {
+	x := matcher{b: b, prev: prev, json: json, eof: eof}
+	if r := x.opening(); r != full {
 		return x.done(r)
 	}
-	if r := x.optionalSpace(); r != full {
+	x.space()
+	r, lbl := x.label()
+	if r != full {
 		return x.done(r)
 	}
-	if r := x.label(); r != full {
+	r, plainSep := x.separator()
+	if r == reject {
+		if dash := bytes.LastIndexByte(lbl, '-'); dash > 0 {
+			x.i -= len(lbl) - dash
+			lbl = lbl[:dash]
+			r, plainSep = x.separator()
+		}
+	}
+	if r != full {
 		return x.done(r)
 	}
-	if r := x.expect('_'); r != full {
+	if r = x.suffix(); r != full {
 		return x.done(r)
 	}
-	if r := x.suffix(); r != full {
+	r, closed := x.closing()
+	if r != full {
 		return x.done(r)
 	}
-	return x.done(x.expect(']'))
+	t, known := entity.LabelFold(lbl)
+	bracket := x.open == openBracket || x.open == openEscBracket
+	x.m.canonical = known && bracket && closed && plainSep
+	if !x.m.canonical {
+		t, _ = aliasType(lbl)
+	}
+	x.m.typ = t
+	return x.done(full)
 }
 
 type Stream struct {
@@ -202,6 +430,7 @@ type Stream struct {
 	opts    Options
 	pending [MaxTokenLen]byte
 	held    int
+	prev    byte
 	key     [token.MaxLength]byte
 	stats   Stats
 }
@@ -218,31 +447,69 @@ func (s *Stream) Stats() *Stats {
 	return &s.stats
 }
 
-func (s *Stream) nextOpener(b []byte) int {
-	if s.opts.Encoding == Raw {
-		return bytes.IndexAny(b, "[\\")
+func (s *Stream) trigger(c byte) bool {
+	switch c {
+	case '[', '<', '(', '{', '%', '\\', 0xE3:
+		return true
 	}
-	return bytes.IndexByte(b, '[')
+	return c >= 'A' && c <= 'Z'
 }
 
-func (s *Stream) process(dst, b []byte, limit int, final bool) (out []byte, next, partialAt int) {
+func (s *Stream) nextTrigger(b []byte) int {
+	for k, c := range b {
+		if c >= 'a' && c <= 'z' {
+			continue
+		}
+		if s.trigger(c) {
+			return k
+		}
+	}
+	return -1
+}
+
+func bareCandidate(b []byte, j int, prev byte) bool {
+	if wordByte(before(b, j, prev)) {
+		return false
+	}
+	if j+1 < len(b) {
+		n := b[j+1]
+		return (n >= 'A' && n <= 'Z') || n == '-'
+	}
+	return true
+}
+
+func before(b []byte, j int, prev byte) byte {
+	if j > 0 {
+		return b[j-1]
+	}
+	return prev
+}
+
+func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out []byte, next, partialAt int) {
 	i := 0
 	for i < limit {
-		j := s.nextOpener(b[i:limit])
+		j := s.nextTrigger(b[i:limit])
 		if j < 0 {
 			return append(dst, b[i:limit]...), limit, -1
 		}
 		j += i
 		dst = append(dst, b[i:j]...)
-		m := matchToken(b[j:], s.opts.Encoding == Raw)
+		if c := b[j]; c >= 'A' && c <= 'Z' && !bareCandidate(b, j, prev) {
+			dst = append(dst, c)
+			i = j + 1
+			continue
+		}
+		m := matchToken(b[j:], before(b, j, prev), s.opts.Encoding == JSONString, final)
 		switch m.res {
 		case full:
-			dst = s.resolve(dst, b[j:j+m.n], &m)
-			i = j + m.n
-		case partial:
-			if final {
-				return append(dst, b[j:]...), len(b), -1
+			if out, ok := s.resolve(dst, b[j:j+m.n], &m); ok {
+				dst = out
+				i = j + m.n
+				continue
 			}
+			dst = append(dst, b[j])
+			i = j + 1
+		case partial:
 			return dst, j, j
 		case reject:
 			dst = append(dst, b[j])
@@ -253,6 +520,9 @@ func (s *Stream) process(dst, b []byte, limit int, final bool) (out []byte, next
 }
 
 func (s *Stream) Feed(dst, chunk []byte) []byte {
+	if len(chunk) == 0 {
+		return dst
+	}
 	if s.held > 0 {
 		var win [2 * MaxTokenLen]byte
 		old := s.held
@@ -260,53 +530,69 @@ func (s *Stream) Feed(dst, chunk []byte) []byte {
 		w := append(append(win[:0], s.pending[:old]...), chunk[:take]...)
 		s.held = 0
 		var next, part int
-		dst, next, part = s.process(dst, w, old, false)
+		dst, next, part = s.process(dst, w, old, false, s.prev)
 		if part >= 0 {
-			s.hold(w[part:])
+			s.hold(w, part)
 			return dst
 		}
+		s.prev = w[next-1]
 		chunk = chunk[next-old:]
+		if len(chunk) == 0 {
+			return dst
+		}
 	}
-	dst, _, part := s.process(dst, chunk, len(chunk), false)
+	dst, _, part := s.process(dst, chunk, len(chunk), false, s.prev)
 	if part >= 0 {
-		s.hold(chunk[part:])
+		s.hold(chunk, part)
+		return dst
 	}
+	s.prev = chunk[len(chunk)-1]
 	return dst
 }
 
-func (s *Stream) hold(b []byte) {
-	s.held = copy(s.pending[:], b)
+func (s *Stream) hold(b []byte, at int) {
+	s.prev = before(b, at, s.prev)
+	s.held = copy(s.pending[:], b[at:])
 	s.stats.MaxHeld = max(s.stats.MaxHeld, s.held)
 }
 
 func (s *Stream) Flush(dst []byte) []byte {
-	dst = append(dst, s.pending[:s.held]...)
+	if s.held == 0 {
+		return dst
+	}
+	var buf [MaxTokenLen]byte
+	n := copy(buf[:], s.pending[:s.held])
 	s.held = 0
+	dst, _, _ = s.process(dst, buf[:n], n, true, s.prev)
+	s.prev = buf[n-1]
 	return dst
 }
 
-func (s *Stream) resolve(dst, raw []byte, m *match) []byte {
+func (s *Stream) resolve(dst, raw []byte, m *match) ([]byte, bool) {
 	n := copy(s.key[:], m.suffix[:m.slen])
 	if orig, ok := s.set.Lookup(m.typ, s.key[:n]); ok {
 		s.stats.Restored++
 		if s.opts.Encoding == JSONString {
-			return AppendJSONContent(dst, orig)
+			return AppendJSONContent(dst, orig), true
 		}
-		return append(dst, orig...)
+		return append(dst, orig...), true
+	}
+	if !m.canonical {
+		return dst, false
 	}
 	s.stats.Foreign++
 	s.stats.ForeignTypes[m.typ]++
 	if s.opts.Foreign == ForeignKeep {
-		return append(dst, raw...)
+		return append(dst, raw...), true
 	}
 	dst = append(dst, '[')
 	dst = append(dst, m.typ.LabelLower()...)
-	return append(dst, ']')
+	return append(dst, ']'), true
 }
 
 func Restore(dst, src []byte, set Set, o Options) ([]byte, Stats) {
 	s := NewStream(set, o)
-	dst, _, _ = s.process(dst, src, len(src), true)
+	dst, _, _ = s.process(dst, src, len(src), true, 0)
 	return dst, s.stats
 }
 

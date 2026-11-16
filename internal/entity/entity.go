@@ -21,7 +21,14 @@ const (
 	typeCount
 )
 
-const unknownName = "UNKNOWN"
+const (
+	unknownName = "UNKNOWN"
+	nameEmail   = "EMAIL"
+	namePhone   = "PHONE"
+	nameCpf     = "CPF"
+	nameCnpj    = "CNPJ"
+	nameIban    = "IBAN"
+)
 
 const (
 	MaxNameLen  = 12
@@ -31,15 +38,15 @@ const (
 func (t Type) Label() string {
 	switch t {
 	case Email:
-		return "EMAIL"
+		return nameEmail
 	case Phone:
-		return "PHONE"
+		return namePhone
 	case IP, IPPrivate:
 		return "IP"
 	case CPF:
-		return "CPF"
+		return nameCpf
 	case CNPJ:
-		return "CNPJ"
+		return nameCnpj
 	case PTNIF:
 		return "NIF"
 	case ESDNI:
@@ -53,7 +60,7 @@ func (t Type) Label() string {
 	case ITCF:
 		return "CF"
 	case IBAN:
-		return "IBAN"
+		return nameIban
 	case CreditCard:
 		return "CARD"
 	case Unknown, typeCount:
@@ -107,10 +114,33 @@ func LabelFold(b []byte) (Type, bool) {
 		}
 		up[i] = c
 	}
-	for t := Unknown + 1; t < typeCount; t++ {
-		if t != IPPrivate && t.Label() == string(up[:len(b)]) {
-			return t, true
-		}
+	switch string(up[:len(b)]) {
+	case nameEmail:
+		return Email, true
+	case namePhone:
+		return Phone, true
+	case "IP":
+		return IP, true
+	case nameCpf:
+		return CPF, true
+	case nameCnpj:
+		return CNPJ, true
+	case "NIF":
+		return PTNIF, true
+	case "DNI":
+		return ESDNI, true
+	case "NIE":
+		return ESNIE, true
+	case "STEUERID":
+		return DESteuerID, true
+	case "NIR":
+		return FRNIR, true
+	case "CF":
+		return ITCF, true
+	case nameIban:
+		return IBAN, true
+	case "CARD":
+		return CreditCard, true
 	}
 	return Unknown, false
 }
@@ -120,17 +150,17 @@ const Count = int(typeCount)
 func (t Type) String() string {
 	switch t {
 	case Email:
-		return "EMAIL"
+		return nameEmail
 	case Phone:
-		return "PHONE"
+		return namePhone
 	case IP:
 		return "IP"
 	case IPPrivate:
 		return "IP_PRIVATE"
 	case CPF:
-		return "CPF"
+		return nameCpf
 	case CNPJ:
-		return "CNPJ"
+		return nameCnpj
 	case PTNIF:
 		return "PT_NIF"
 	case ESDNI:
@@ -144,7 +174,7 @@ func (t Type) String() string {
 	case ITCF:
 		return "IT_CF"
 	case IBAN:
-		return "IBAN"
+		return nameIban
 	case CreditCard:
 		return "CREDIT_CARD"
 	case Unknown, typeCount:

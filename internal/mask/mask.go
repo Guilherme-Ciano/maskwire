@@ -221,7 +221,7 @@ func (s *Session) Lookup(t entity.Type, suffixUpper []byte) ([]byte, bool) {
 		return nil, false
 	}
 	e := s.entries[idx]
-	if e.typ.Label() != t.Label() {
+	if t != entity.Unknown && e.typ.Label() != t.Label() {
 		return nil, false
 	}
 	return s.arena[e.origFrom:e.origTo], true
