@@ -131,24 +131,30 @@ func TestTopLevelEdits(t *testing.T) {
 	if got != `{ "model":"m", "messages":[{"role":"system"}, {"role":"user"} ], "system":"be brief", "n":[] }` {
 		t.Fatalf("prepend: %s", got)
 	}
-	s, e, _, _ = TopLevel(doc, "n")
+	s, e, ok, err = TopLevel(doc, "n")
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
 	if got := string(PrependToArray(doc, s, e, []byte(`1`))); !strings.Contains(got, `"n":[1] }`) {
 		t.Fatalf("empty array: %s", got)
 	}
-	s, e, _, _ = TopLevel(doc, "system")
+	s, e, ok, err = TopLevel(doc, "system")
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
 	out, err := PrependToString(doc, s, e, "hint. ")
 	if err != nil || !strings.Contains(string(out), `"system":"hint. be brief"`) {
 		t.Fatalf("string: %s %v", out, err)
 	}
-	if _, _, ok, _ := TopLevel(doc, "absent"); ok {
+	if _, _, found, err := TopLevel(doc, "absent"); found || err != nil {
 		t.Fatal("absent key found")
 	}
 	ins, err := InsertTopLevel([]byte(`{}`), "k", []byte(`"v"`))
 	if err != nil || string(ins) != `{"k":"v"}` {
 		t.Fatalf("insert empty: %s", ins)
 	}
-	ins, _ = InsertTopLevel([]byte(` {"a":1}`), "k", []byte(`2`))
-	if string(ins) != ` {"k":2,"a":1}` {
+	ins, err = InsertTopLevel([]byte(` {"a":1}`), "k", []byte(`2`))
+	if err != nil || string(ins) != ` {"k":2,"a":1}` {
 		t.Fatalf("insert: %s", ins)
 	}
 	if _, _, _, err := TopLevel([]byte(`[1]`), "x"); !errors.Is(err, ErrNotObject) {
