@@ -357,6 +357,9 @@ func (b *ResponsesStream) rewrite(e *respEvent, raw []byte) (data []byte, keep b
 		if len(b.scratch) == 0 {
 			return nil, false, nil
 		}
+		if string(b.scratch) == *e.Delta {
+			return raw, true, nil
+		}
 		text := string(b.scratch)
 		e.Delta = &text
 		out, err := json.Marshal(e)

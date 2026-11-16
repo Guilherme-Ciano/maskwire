@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/jsonx"
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
 )
@@ -60,6 +63,37 @@ func BenchmarkRestoreBody(b *testing.B) {
 	for b.Loop() {
 		out, _, err = c.RestoreBody(out[:0], body, s, restore.Options{})
 		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkStreamEvents(b *testing.B) {
+	s := session(b)
+	masked, err := s.MaskText(nil, []byte(benchPrompt(4096)))
+	if err != nil {
+		b.Fatal(err)
+	}
+	var src strings.Builder
+	events := 0
+	for i := 0; i < len(masked); i += 4 {
+		piece := jsonx.Quote(nil, masked[i:min(i+4, len(masked))])
+		src.WriteString(
+			`data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1731600000,"model":"gpt-4.1-mini","choices":[{"index":0,"delta":{"content":` +
+				string(
+					piece,
+				) + `},"logprobs":null,"finish_reason":null}]}` + "\n\n",
+		)
+		events++
+	}
+	src.WriteString("data: [DONE]\n\n")
+	data := []byte(src.String())
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	b.ReportMetric(float64(events), "events/op")
+	for b.Loop() {
+		body := NewStreamBody(io.NopCloser(bytes.NewReader(data)), s, codec.StreamOptions{})
+		if _, err := io.Copy(io.Discard, body); err != nil {
 			b.Fatal(err)
 		}
 	}

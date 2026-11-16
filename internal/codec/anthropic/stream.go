@@ -231,6 +231,9 @@ func (b *StreamBody) delta(env *envelope) (data []byte, keep bool, err error) {
 	if len(b.scratch) == 0 {
 		return nil, false, nil
 	}
+	if string(b.scratch) == *field {
+		return nil, true, nil
+	}
 	*field = string(b.scratch)
 	out, err := json.Marshal(env)
 	if err != nil {

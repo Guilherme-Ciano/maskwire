@@ -73,6 +73,7 @@ type StreamBody struct {
 	err      error
 	idle     *codec.IdleReader
 	header   jsontext.Value
+	changed  bool
 	events   int
 	dropped  int
 	onClose  func(restore.Stats, int, int)
@@ -256,7 +257,10 @@ func (b *StreamBody) feed(k channelKey, s *string) error {
 		return err
 	}
 	b.scratch = st.Feed(b.scratch[:0], []byte(*s))
-	*s = string(b.scratch)
+	if string(b.scratch) != *s {
+		*s = string(b.scratch)
+		b.changed = true
+	}
 	return nil
 }
 
@@ -272,7 +276,8 @@ func (b *StreamBody) rewrite(data []byte) (encoded []byte, keep bool, err error)
 	if err := b.reserve(c.Choices); err != nil {
 		return nil, false, err
 	}
-	empty := hasNoPayload(c.Extra)
+	b.changed = false
+	empty := true
 	for i := range c.Choices {
 		ch := &c.Choices[i]
 		if ch.Delta == nil {
@@ -288,8 +293,11 @@ func (b *StreamBody) rewrite(data []byte) (encoded []byte, keep bool, err error)
 			empty = false
 		}
 	}
-	if empty {
+	if empty && hasNoPayload(c.Extra) {
 		return nil, false, nil
+	}
+	if !b.changed {
+		return data, true, nil
 	}
 	out, err := json.Marshal(&c)
 	if err != nil {
@@ -337,6 +345,7 @@ func (b *StreamBody) flushChoice(ch *sChoice) {
 			continue
 		}
 		b.scratch = c.stream.Flush(b.scratch[:0])
+		b.changed = true
 		switch c.key.kind {
 		case kindContent:
 			d.Content = appendFlushed(d.Content, b.scratch)
