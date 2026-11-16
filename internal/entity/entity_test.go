@@ -26,3 +26,26 @@ func TestLabelRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestMask(t *testing.T) {
+	if typeCount > 64 {
+		t.Fatalf("Mask holds 64 types, have %d", typeCount)
+	}
+	var m Mask
+	if m.Has(Email) {
+		t.Fatal("empty mask has Email")
+	}
+	m = m.With(Email)
+	if !m.Has(Email) || m.Has(IBAN) {
+		t.Fatalf("mask %b", m)
+	}
+	all := AllMask()
+	for _, typ := range All() {
+		if !all.Has(typ) {
+			t.Fatalf("AllMask misses %v", typ)
+		}
+	}
+	if all.Has(Unknown) {
+		t.Fatal("AllMask has Unknown")
+	}
+}

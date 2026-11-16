@@ -241,6 +241,7 @@ func (b *StreamBody) channel(k channelKey) (*restore.Stream, error) {
 	o := b.opts
 	if k.kind == kindTool {
 		o.Encoding = restore.JSONString
+		o.Tool = true
 	} else {
 		o.Encoding = restore.Raw
 	}

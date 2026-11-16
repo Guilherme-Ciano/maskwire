@@ -42,6 +42,7 @@ type Metrics struct {
 	Blocked        *prometheus.CounterVec
 	ForeignTokens  *prometheus.CounterVec
 	Restores       *prometheus.CounterVec
+	ToolWithheld   *prometheus.CounterVec
 	MaskDuration   *prometheus.HistogramVec
 	RequestLatency *prometheus.HistogramVec
 	Holdback       prometheus.Histogram
@@ -96,6 +97,10 @@ func NewMetrics() *Metrics {
 		Restores: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "maskwire_restores_total", Help: "Tokens restored in responses.",
 		}, []string{labelTenant, "streaming"}),
+		ToolWithheld: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "maskwire_tool_withheld_total",
+			Help: "Tokens left masked in tool-call arguments by the tenant's tool_restore policy.",
+		}, []string{labelTenant}),
 		MaskDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "maskwire_mask_duration_seconds", Help: "Time spent detecting and masking a request body.",
 			Buckets: durationBuckets(), NativeHistogramBucketFactor: 1.1,
@@ -116,7 +121,7 @@ func NewMetrics() *Metrics {
 			Name: "maskwire_stream_events_total", Help: "Upstream SSE events by outcome.",
 		}, []string{"outcome"}),
 	}
-	reg.MustRegister(m.Requests, m.Detections, m.Blocked, m.ForeignTokens, m.Restores, m.MaskDuration,
+	reg.MustRegister(m.Requests, m.Detections, m.Blocked, m.ForeignTokens, m.Restores, m.ToolWithheld, m.MaskDuration,
 		m.RequestLatency, m.Holdback, m.StreamEvents, m.ResponseDetections)
 	return m
 }

@@ -29,9 +29,16 @@ const (
 	MinGeneratedKeyLen = 24
 )
 
+const (
+	toolRestoreAll  = "all"
+	toolRestoreNone = "none"
+)
+
 var (
-	ErrKeyFilePerms = errors.New("master key file must not be accessible by other users")
-	ErrKeyEncoding  = errors.New("master key must be hex encoded")
+	ErrKeyFilePerms   = errors.New("master key file must not be accessible by other users")
+	ErrKeyEncoding    = errors.New("master key must be hex encoded")
+	ErrUnknownType    = errors.New("unknown entity type")
+	ErrToolRestoreMix = errors.New("all and none cannot be combined with other values")
 )
 
 type Config struct {
@@ -109,6 +116,7 @@ type Tenant struct {
 	PromptHint   bool            `koanf:"prompt_hint"`
 	ResponseScan string          `koanf:"response_scan"`
 	Foreign      string          `koanf:"foreign_token"`
+	ToolRestore  []string        `koanf:"tool_restore"`
 }
 
 func Defaults() Config {
@@ -235,8 +243,8 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("at least one tenant is required"))
 	}
 	ids := map[string]bool{}
-	for i, t := range c.Tenants {
-		errs = append(errs, t.validate(i, ids)...)
+	for i := range c.Tenants {
+		errs = append(errs, c.Tenants[i].validate(i, ids)...)
 	}
 	if c.Server.DefaultTenant != "" && !ids[c.Server.DefaultTenant] {
 		errs = append(errs, fmt.Errorf("server.default_tenant %q is not a configured tenant", c.Server.DefaultTenant))
@@ -293,7 +301,37 @@ func (t Tenant) validate(i int, ids map[string]bool) []error {
 	if t.Foreign != "" && t.Foreign != "generic" && t.Foreign != "keep" {
 		errs = append(errs, fmt.Errorf("tenants[%d].foreign_token must be generic or keep", i))
 	}
+	if _, err := t.ToolWithhold(); err != nil {
+		errs = append(errs, fmt.Errorf("tenants[%d].tool_restore: %w", i, err))
+	}
 	return errs
+}
+
+func (t Tenant) ToolWithhold() (entity.Mask, error) {
+	if len(t.ToolRestore) == 0 {
+		return 0, nil
+	}
+	var allow entity.Mask
+	for _, name := range t.ToolRestore {
+		switch name {
+		case toolRestoreAll:
+			if len(t.ToolRestore) > 1 {
+				return 0, ErrToolRestoreMix
+			}
+			return 0, nil
+		case toolRestoreNone:
+			if len(t.ToolRestore) > 1 {
+				return 0, ErrToolRestoreMix
+			}
+			return entity.AllMask(), nil
+		}
+		typ, ok := entity.Parse(name)
+		if !ok {
+			return 0, fmt.Errorf("%w: %q", ErrUnknownType, name)
+		}
+		allow = allow.With(typ)
+	}
+	return entity.AllMask() &^ allow, nil
 }
 
 func (t Tenant) Policy() (*policy.Policy, error) {

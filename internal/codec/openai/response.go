@@ -37,6 +37,7 @@ func (c *Codec) RestoreBody(dst, body []byte, set restore.Set, o restore.Options
 		}
 		opts := o
 		opts.Encoding = enc
+		opts.Tool = enc == restore.JSONString
 		var st restore.Stats
 		restored, st = restore.Restore(restored[:0], scratch, set, opts)
 		stats.Add(&st)

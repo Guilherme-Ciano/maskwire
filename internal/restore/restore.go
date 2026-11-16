@@ -16,6 +16,7 @@ const (
 type Set interface {
 	Lookup(t entity.Type, suffixUpper []byte) ([]byte, bool)
 	Numeric(suffixUpper []byte) bool
+	Kind(suffixUpper []byte) (entity.Type, bool)
 }
 
 type Foreign uint8
@@ -36,11 +37,14 @@ type Options struct {
 	Foreign  Foreign
 	Encoding Encoding
 	Tap      func(upstream []byte)
+	Tool     bool
+	Withhold entity.Mask
 }
 
 type Stats struct {
 	Restored     uint32
 	Foreign      uint32
+	Withheld     uint32
 	ForeignTypes [entity.Count]uint32
 	MaxHeld      int
 }
@@ -48,6 +52,7 @@ type Stats struct {
 func (s *Stats) Add(o *Stats) {
 	s.Restored += o.Restored
 	s.Foreign += o.Foreign
+	s.Withheld += o.Withheld
 	for i := range s.ForeignTypes {
 		s.ForeignTypes[i] += o.ForeignTypes[i]
 	}
@@ -564,7 +569,7 @@ func (s *Stream) quotedNumber(dst, b []byte, final bool) (n int, out []byte, res
 		return 0, dst, reject
 	}
 	k := copy(s.key[:], m.suffix[:m.slen])
-	if !s.set.Numeric(s.key[:k]) {
+	if !s.set.Numeric(s.key[:k]) || s.withheld(s.key[:k]) {
 		return 0, dst, reject
 	}
 	orig, ok := s.set.Lookup(m.typ, s.key[:k])
@@ -630,6 +635,10 @@ func (s *Stream) Flush(dst []byte) []byte {
 func (s *Stream) resolve(dst, raw []byte, m *match) ([]byte, bool) {
 	n := copy(s.key[:], m.suffix[:m.slen])
 	if orig, ok := s.set.Lookup(m.typ, s.key[:n]); ok {
+		if s.withheld(s.key[:n]) {
+			s.stats.Withheld++
+			return append(dst, raw...), true
+		}
 		s.stats.Restored++
 		if s.opts.Encoding == JSONString {
 			return AppendJSONContent(dst, orig), true
@@ -647,6 +656,14 @@ func (s *Stream) resolve(dst, raw []byte, m *match) ([]byte, bool) {
 	dst = append(dst, '[')
 	dst = append(dst, m.typ.LabelLower()...)
 	return append(dst, ']'), true
+}
+
+func (s *Stream) withheld(suffix []byte) bool {
+	if !s.opts.Tool || s.opts.Withhold == 0 {
+		return false
+	}
+	t, ok := s.set.Kind(suffix)
+	return ok && s.opts.Withhold.Has(t)
 }
 
 func Restore(dst, src []byte, set Set, o Options) ([]byte, Stats) {

@@ -136,3 +136,25 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestToolWithhold(t *testing.T) {
+	all := entity.AllMask()
+	for _, tc := range []struct {
+		in   []string
+		want entity.Mask
+		err  error
+	}{
+		{nil, 0, nil},
+		{[]string{"all"}, 0, nil},
+		{[]string{"none"}, all, nil},
+		{[]string{"EMAIL", "PHONE"}, all &^ entity.Mask(0).With(entity.Email).With(entity.Phone), nil},
+		{[]string{"none", "EMAIL"}, 0, ErrToolRestoreMix},
+		{[]string{"EMAIL", "all"}, 0, ErrToolRestoreMix},
+		{[]string{"NAME"}, 0, ErrUnknownType},
+	} {
+		got, err := Tenant{ToolRestore: tc.in}.ToolWithhold()
+		if !errors.Is(err, tc.err) || (err == nil && got != tc.want) {
+			t.Errorf("%v: got %b, %v", tc.in, got, err)
+		}
+	}
+}

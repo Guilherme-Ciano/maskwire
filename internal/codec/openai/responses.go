@@ -149,6 +149,7 @@ func (c *Codec) restoreLeaves(
 		}
 		opts := o
 		opts.Encoding = enc
+		opts.Tool = enc == restore.JSONString
 		var st restore.Stats
 		restored, st = restore.Restore(restored[:0], scratch, set, opts)
 		stats.Add(&st)
@@ -308,6 +309,7 @@ func (b *ResponsesStream) channel(k respKey) (*restore.Stream, error) {
 	o.Encoding = restore.Raw
 	if k.kind == fieldArguments {
 		o.Encoding = restore.JSONString
+		o.Tool = true
 	}
 	b.channels = append(b.channels, respChannel{key: k, stream: restore.NewStream(b.set, o)})
 	return &b.channels[len(b.channels)-1].stream, nil

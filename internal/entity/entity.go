@@ -335,3 +335,21 @@ func Priority(t Type) int {
 	}
 	return 0
 }
+
+type Mask uint64
+
+func (m Mask) Has(t Type) bool {
+	return m&(1<<uint(t)) != 0
+}
+
+func (m Mask) With(t Type) Mask {
+	return m | 1<<uint(t)
+}
+
+func AllMask() Mask {
+	var m Mask
+	for t := Unknown + 1; t < typeCount; t++ {
+		m = m.With(t)
+	}
+	return m
+}

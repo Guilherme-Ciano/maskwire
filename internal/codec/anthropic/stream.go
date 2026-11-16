@@ -197,6 +197,7 @@ func (b *StreamBody) start(env *envelope) error {
 	o.Encoding = restore.Raw
 	if kind == kindJSON {
 		o.Encoding = restore.JSONString
+		o.Tool = true
 	}
 	if c := b.find(env.Index); c != nil {
 		b.out = b.flush(b.out, c)

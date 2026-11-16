@@ -481,6 +481,40 @@ func TestOpenAIToolCallStreaming(t *testing.T) {
 	}
 }
 
+func TestToolRestoreWithholdsTypes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, func(c *config.Config) { c.Tenants[0].ToolRestore = []string{"EMAIL"} })
+	r := h.post(chatPath, chatBody(t, true), map[string]string{"X-Mock-Mode": "toolcall"})
+	_, args := sseText(t, r.body)
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+		t.Fatalf("args %q: %v", args, err)
+	}
+	text := parsed["text"]
+	if !strings.Contains(text, "ana.silva@empresa.com.br") {
+		t.Fatalf("email not restored: %q", text)
+	}
+	if strings.Contains(text, "529.982.247-25") || !strings.Contains(text, "[CPF_") {
+		t.Fatalf("CPF restored in tool args: %q", text)
+	}
+	if content, _ := sseText(t, h.post(chatPath, chatBody(t, true), nil).body); content != "I received: "+prompt {
+		t.Fatalf("text channel affected: %q", content)
+	}
+	srv := httptest.NewServer(h.app.AdminHandler())
+	defer srv.Close()
+	if m := h.do(
+		http.MethodGet,
+		srv.URL+"/metrics",
+		"",
+		nil,
+	).body; !strings.Contains(
+		m,
+		`maskwire_tool_withheld_total{tenant="acme"} 2`,
+	) {
+		t.Fatalf("withheld metric missing")
+	}
+}
+
 func TestAnthropicStreamingAndJSON(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

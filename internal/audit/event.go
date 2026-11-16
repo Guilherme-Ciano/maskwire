@@ -34,6 +34,7 @@ type Event struct {
 	Allow        uint32
 	Restored     uint32
 	Foreign      uint32
+	Withheld     uint32
 	MaskMicros   int64
 	TotalMicros  int64
 	InputDigest  [32]byte
@@ -142,6 +143,10 @@ func (e *Event) appendBody(dst []byte) []byte {
 	dst = strconv.AppendUint(dst, uint64(e.Restored), 10)
 	dst = append(dst, `,"foreign":`...)
 	dst = strconv.AppendUint(dst, uint64(e.Foreign), 10)
+	if e.Withheld > 0 {
+		dst = append(dst, `,"tool_withheld":`...)
+		dst = strconv.AppendUint(dst, uint64(e.Withheld), 10)
+	}
 	dst = append(dst, '}')
 	dst = appendKV(dst, "latency_ms")
 	dst = append(dst, `{"mask":`...)

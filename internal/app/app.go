@@ -105,7 +105,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
 		DisableCompression:    false,
 	}
-	for _, t := range cfg.Tenants {
+	for i := range cfg.Tenants {
+		t := &cfg.Tenants[i]
 		if t.Mode == "observe" {
 			log.Warn("tenant in observe mode forwards raw personal data upstream", slog.String("tenant", t.ID))
 		}
@@ -135,7 +136,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 
 func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, error) {
 	out := make([]*httpapi.Tenant, 0, len(cfg.Tenants))
-	for _, t := range cfg.Tenants {
+	for i := range cfg.Tenants {
+		t := &cfg.Tenants[i]
 		p, err := t.Policy()
 		if err != nil {
 			return nil, fmt.Errorf("tenant %s policy: %w", t.ID, err)
@@ -148,6 +150,10 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 		if _, err := hex.Decode(h[:], []byte(t.KeySHA256)); err != nil {
 			return nil, fmt.Errorf("tenant %s key hash: %w", t.ID, err)
 		}
+		withhold, err := t.ToolWithhold()
+		if err != nil {
+			return nil, fmt.Errorf("tenant %s: %w", t.ID, err)
+		}
 		foreign := restore.ForeignGeneric
 		if t.Foreign == "keep" {
 			foreign = restore.ForeignKeep
@@ -156,6 +162,7 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 			Mask:         &mask.Tenant{ID: t.ID, Key: key, Policy: p, TokenLength: t.TokenLength},
 			KeyHash:      h,
 			Foreign:      foreign,
+			ToolWithhold: withhold,
 			PromptHint:   t.PromptHint,
 			ResponseScan: t.ResponseScan != "off",
 		})

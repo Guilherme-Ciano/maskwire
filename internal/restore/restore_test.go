@@ -17,6 +17,21 @@ func (f fakeSet) Numeric(suffix []byte) bool {
 	return string(suffix) == "N0MBER"
 }
 
+func (f fakeSet) Kind(suffix []byte) (entity.Type, bool) {
+	for k := range f {
+		label, sfx, _ := strings.Cut(k, "_")
+		if sfx != string(suffix) {
+			continue
+		}
+		for _, t := range entity.All() {
+			if t.Label() == label {
+				return t, true
+			}
+		}
+	}
+	return entity.Unknown, false
+}
+
 func (f fakeSet) Lookup(t entity.Type, suffix []byte) ([]byte, bool) {
 	if t == entity.Unknown {
 		for k, v := range f {
@@ -311,5 +326,33 @@ func BenchmarkRestoreStream(b *testing.B) {
 				out = s.Flush(out)
 			}
 		})
+	}
+}
+
+func TestToolWithhold(t *testing.T) {
+	src := []byte(`{"to":"[EMAIL_K7Q2MA]","id":"[CPF_7H3JX9]","n":"[CPF_N0MBER]"}`)
+	o := Options{Encoding: JSONString, Tool: true, Withhold: entity.Mask(0).With(entity.CPF)}
+	got, st := Restore(nil, src, set, o)
+	want := `{"to":"ana@empresa.pt","id":"[CPF_7H3JX9]","n":"[CPF_N0MBER]"}`
+	if string(got) != want {
+		t.Fatalf("got %s want %s", got, want)
+	}
+	if st.Restored != 1 || st.Withheld != 2 {
+		t.Fatalf("stats %+v", st)
+	}
+	o.Tool = false
+	got, st = Restore(nil, src, set, o)
+	if st.Withheld != 0 || bytes.Contains(got, []byte("CPF_")) {
+		t.Fatalf("non-tool channel withheld: %s %+v", got, st)
+	}
+	o.Tool = true
+	var out []byte
+	s := NewStream(set, o)
+	for i := range src {
+		out = s.Feed(out, src[i:i+1])
+	}
+	out = s.Flush(out)
+	if string(out) != want {
+		t.Fatalf("stream got %s", out)
 	}
 }

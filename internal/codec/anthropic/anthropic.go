@@ -124,7 +124,9 @@ func (c *Codec) RestoreBody(dst, body []byte, set restore.Set, o restore.Options
 			return dst, false, err
 		}
 		var st restore.Stats
-		restored, st = restore.Restore(restored[:0], scratch, set, o)
+		opts := o
+		opts.Tool = jsonx.Under(path, "input")
+		restored, st = restore.Restore(restored[:0], scratch, set, opts)
 		stats.Add(&st)
 		if st.Restored == 0 && st.Foreign == 0 {
 			return dst, false, nil

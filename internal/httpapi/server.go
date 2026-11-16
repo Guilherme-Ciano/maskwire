@@ -52,6 +52,7 @@ type Tenant struct {
 	Mask         *mask.Tenant
 	KeyHash      [32]byte
 	Foreign      restore.Foreign
+	ToolWithhold entity.Mask
 	PromptHint   bool
 	ResponseScan bool
 }
@@ -396,7 +397,7 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 	if err != nil {
 		ct = ""
 	}
-	opts := restore.Options{Foreign: x.tenant.Foreign}
+	opts := restore.Options{Foreign: x.tenant.Foreign, Withhold: x.tenant.ToolWithhold}
 	if x.tenant.ResponseScan {
 		opts.Tap = x.tap
 	}
@@ -506,6 +507,9 @@ func (s *Server) finish(r *http.Request, x *exchange) {
 	if x.stats.Restored > 0 {
 		s.metrics.Restores.WithLabelValues(tenantID, strconv.FormatBool(x.stream)).Add(float64(x.stats.Restored))
 	}
+	if x.stats.Withheld > 0 {
+		s.metrics.ToolWithheld.WithLabelValues(tenantID).Add(float64(x.stats.Withheld))
+	}
 	for t, n := range x.stats.ForeignTypes {
 		if n > 0 {
 			s.metrics.ForeignTokens.WithLabelValues(tenantID, entity.Type(t).String()).Add(float64(n))
@@ -530,7 +534,7 @@ func (s *Server) finish(r *http.Request, x *exchange) {
 		Generated: generated,
 		TS:        x.start, Tenant: tenantID, Route: x.route.Name, Upstream: x.route.Upstream.Host, Model: x.meta.Model,
 		Mode: x.tenant.Mask.Policy.Mode.String(), Status: x.status, Streaming: x.stream,
-		Restored: x.stats.Restored, Foreign: x.stats.Foreign, InputDigest: x.inDigest,
+		Restored: x.stats.Restored, Foreign: x.stats.Foreign, Withheld: x.stats.Withheld, InputDigest: x.inDigest,
 		MaskMicros: x.maskTime.Microseconds(), TotalMicros: total.Microseconds(),
 	}
 	if x.session != nil {

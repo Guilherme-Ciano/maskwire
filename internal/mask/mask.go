@@ -243,6 +243,19 @@ func (s *Session) Lookup(t entity.Type, suffixUpper []byte) ([]byte, bool) {
 	return s.arena[e.origFrom:e.origTo], true
 }
 
+func (s *Session) Kind(suffixUpper []byte) (entity.Type, bool) {
+	if len(suffixUpper) > suffixCap {
+		return entity.Unknown, false
+	}
+	var key Suffix
+	copy(key[:], suffixUpper)
+	idx, ok := s.set[key]
+	if !ok {
+		return entity.Unknown, false
+	}
+	return s.entries[idx].typ, true
+}
+
 func (s *Session) Numeric(suffixUpper []byte) bool {
 	if len(suffixUpper) > suffixCap {
 		return false
