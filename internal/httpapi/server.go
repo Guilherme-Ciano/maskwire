@@ -21,6 +21,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/Guilherme-Ciano/maskwire/internal/audit"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec/openai"
@@ -85,6 +88,8 @@ type Auditor interface {
 type Options struct {
 	TenantHeader      string
 	SessionHeader     string
+	Tracer            trace.Tracer
+	Propagator        propagation.TextMapPropagator
 	DefaultTenant     string
 	MaxBodyBytes      int64
 	StreamIdleTimeout time.Duration
@@ -100,6 +105,7 @@ type Server struct {
 	auditor   Auditor
 	opts      Options
 	ready     atomic.Bool
+	tracing   bool
 }
 
 func NewServer(log *slog.Logger, m *telemetry.Metrics, eng *mask.Engine, tenants []*Tenant, routes []Route,
@@ -108,6 +114,10 @@ func NewServer(log *slog.Logger, m *telemetry.Metrics, eng *mask.Engine, tenants
 	s := &Server{
 		log: log, metrics: m, engine: eng, routes: routes,
 		transport: transport, auditor: auditor, opts: o,
+	}
+	s.tracing = s.opts.Tracer != nil
+	if s.opts.Propagator == nil {
+		s.opts.Propagator = propagation.TraceContext{}
 	}
 	s.SetTenants(tenants)
 	for i := range s.routes {
@@ -278,17 +288,61 @@ type exchange struct {
 	status   int
 }
 
-func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
-	x := &exchange{start: time.Now(), route: rt, status: http.StatusOK}
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request, rt *Route, x *exchange) (*Tenant, bool) {
 	tenant, err := s.authenticate(r)
 	if err != nil {
+		x.status = http.StatusUnauthorized
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
-		return
+		return nil, false
 	}
 	if !s.admit(w, tenant, rt) {
-		return
+		x.status = http.StatusTooManyRequests
+		return nil, false
 	}
 	x.tenant = tenant
+	return tenant, true
+}
+
+func (s *Server) readRequest(w http.ResponseWriter, r *http.Request, rt *Route, x *exchange) ([]byte, bool) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.opts.MaxBodyBytes))
+	if err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			s.fail(w, r, x, http.StatusRequestEntityTooLarge, "body_too_large", errors.New("request body too large"))
+			return nil, false
+		}
+		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("could not read request body"))
+		return nil, false
+	}
+	x.meta, err = rt.Codec.ParseMeta(body)
+	if err != nil {
+		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("request body is not valid JSON"))
+		return nil, false
+	}
+	if x.meta.Logprobs {
+		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", openai.ErrLogprobs)
+		return nil, false
+	}
+	return body, true
+}
+
+func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
+	x := &exchange{start: time.Now(), route: rt, status: http.StatusOK}
+	if s.tracing {
+		ctx := s.opts.Propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		ctx, span := s.opts.Tracer.Start(
+			ctx,
+			"maskwire "+rt.Name,
+			trace.WithSpanKind(trace.SpanKindServer),
+			requestAttrs(r, rt),
+		)
+		defer span.End()
+		defer annotate(span, x)
+		r = r.WithContext(ctx)
+	}
+	tenant, ok := s.authorize(w, r, rt, x)
+	if !ok {
+		return
+	}
 	observe := tenant.Mask.Policy.Mode == policy.Observe
 	if s.auditor != nil && !s.auditor.Healthy() {
 		s.fail(w, r, x, http.StatusServiceUnavailable, "audit_unavailable", ErrAuditUnavailable)
@@ -298,22 +352,8 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 		s.fail(w, r, x, http.StatusUnsupportedMediaType, "unsupported_encoding", ErrUnsupportedMedia)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.opts.MaxBodyBytes))
-	if err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			s.fail(w, r, x, http.StatusRequestEntityTooLarge, "body_too_large", errors.New("request body too large"))
-			return
-		}
-		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("could not read request body"))
-		return
-	}
-	x.meta, err = rt.Codec.ParseMeta(body)
-	if err != nil {
-		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("request body is not valid JSON"))
-		return
-	}
-	if x.meta.Logprobs {
-		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", openai.ErrLogprobs)
+	body, ok := s.readRequest(w, r, rt, x)
+	if !ok {
 		return
 	}
 	x.session = s.newSession(r, tenant)
@@ -322,6 +362,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	x.maskTime = time.Since(x.start)
 	s.metrics.MaskDuration.WithLabelValues(rt.Name).Observe(x.maskTime.Seconds())
 	s.countDetections(x)
+	if s.tracing {
+		s.maskSpan(r.Context(), x)
+	}
 	switch {
 	case errors.Is(err, mask.ErrTooManyEntities):
 		s.fail(w, r, x, http.StatusUnprocessableEntity, "too_many_entities", err)
@@ -369,7 +412,7 @@ func exchangeFrom(ctx context.Context) *exchange {
 
 func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
-		Transport: s.transport,
+		Transport: s.upstreamTransport(rt),
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			x := exchangeFrom(pr.In.Context())
 			pr.SetURL(rt.Upstream)

@@ -171,6 +171,7 @@ make demo
 | mockllm | 19000 (`MOCKLLM_PORT`) | mock provider; `GET /last` shows what the upstream received |
 | prometheus | 9092 (`PROMETHEUS_PORT`) | scrapes maskwire |
 | grafana | 3000 (`GRAFANA_PORT`) | provisioned maskwire dashboard, anonymous read-only |
+| jaeger (profile `tracing`) | 16686 (`JAEGER_PORT`) | traces, when `MASKWIRE_TRACING_ENDPOINT=http://jaeger:4318` is set |
 
 `make demo` runs six scenarios: a JSON request through the cache (MISS), the same prompt as a stream (cache HIT,
 replayed as SSE), a different customer with the same wording (the foreign-token guard), a direct streaming route,
@@ -291,6 +292,20 @@ values.
 | `maskwire_stream_holdback_bytes` | | largest hold-back per streamed response |
 | `maskwire_stream_events_total` | outcome | SSE events forwarded or dropped |
 | `maskwire_audit_events_total`, `maskwire_audit_dropped_total` | | audit records written and dropped |
+
+## Tracing
+
+Set `tracing.endpoint` to an OTLP/HTTP collector and maskwire emits one server span per request, with a `mask` child
+span and an `upstream` client span, and forwards W3C `traceparent` to the provider so an incoming trace continues
+through it. Span attributes carry the route, tenant id, status, entity type names and counts, and restore counts,
+never values or tokens. To see it in the demo:
+
+```bash
+MASKWIRE_TRACING_ENDPOINT=http://jaeger:4318 docker compose --profile tracing up --build -d --wait
+make demo
+```
+
+Jaeger is then on http://localhost:16686.
 
 ## Audit log
 

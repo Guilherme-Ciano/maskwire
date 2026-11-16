@@ -9,6 +9,7 @@ services:
     environment:
       MASKWIRE_CONFIG: /etc/maskwire/maskwire.yaml
       MASKWIRE_KEYS__MASTER_KEY: fef77acd0ca38774fb10a35370957851f6241697aa0ca8f174c33b1152314c2a
+      MASKWIRE_TRACING__ENDPOINT: ${MASKWIRE_TRACING_ENDPOINT:-}
     volumes:
       - ./deploy/maskwire.yaml:/etc/maskwire/maskwire.yaml:ro
       - audit:/var/lib/maskwire/audit
@@ -93,6 +94,12 @@ services:
       - "${PROMETHEUS_PORT:-9092}:9090"
     depends_on:
       - maskwire
+
+  jaeger:
+    profiles: ["tracing"]
+    image: jaegertracing/jaeger:2.10.0
+    ports:
+      - "${JAEGER_PORT:-16686}:16686"
 
   grafana:
     image: grafana/grafana:12.0.2

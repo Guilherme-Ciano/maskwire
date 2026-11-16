@@ -235,8 +235,14 @@ func TestPropertyMaskThenRestore(t *testing.T) {
 		if err != nil {
 			rt.Fatal(err)
 		}
-		back, _ := restore.Restore(nil, masked, s, restore.Options{})
+		back, st := restore.Restore(nil, masked, s, restore.Options{})
 		if s.SurfaceVariants() > 0 {
+			return
+		}
+		if st.Foreign > 0 {
+			if !bytes.Contains(back, []byte("[email]")) {
+				rt.Fatalf("foreign token not neutralised\n src %q\nback %q", src, back)
+			}
 			return
 		}
 		if string(back) != src {

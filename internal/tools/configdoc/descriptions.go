@@ -43,6 +43,8 @@ func descriptions() map[string]string {
 		"detect.max_entities":                "distinct entities per request before it is rejected with 422",
 		"log.level":                          "`debug`, `info`, `warn` or `error`",
 		"log.format":                         "`json` or `text`",
+		"tracing.endpoint":                   "OTLP/HTTP traces endpoint such as `http://jaeger:4318`; empty disables tracing",
+		"tracing.sample_ratio":               "fraction of new traces sampled (0-1); incoming sampled parents are always followed",
 		"routes[].name":                      "route name used in metrics and audit records",
 		"routes[].path":                      "path served by maskwire",
 		"routes[].upstream":                  "upstream URL; with a path it is used as is, without one the incoming path is appended",

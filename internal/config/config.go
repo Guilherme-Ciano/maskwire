@@ -47,6 +47,7 @@ type Config struct {
 	Audit   Audit    `koanf:"audit"`
 	Detect  Detect   `koanf:"detect"`
 	Log     Log      `koanf:"log"`
+	Tracing Tracing  `koanf:"tracing"`
 	Routes  []Route  `koanf:"routes"`
 	Tenants []Tenant `koanf:"tenants"`
 }
@@ -89,6 +90,11 @@ type Detect struct {
 	DisablePhone      bool     `koanf:"disable_phone"`
 	KeepReservedEmail bool     `koanf:"keep_reserved_email"`
 	MaxEntities       int      `koanf:"max_entities"`
+}
+
+type Tracing struct {
+	Endpoint    string  `koanf:"endpoint"`
+	SampleRatio float64 `koanf:"sample_ratio"`
 }
 
 type Log struct {
@@ -145,10 +151,11 @@ func Defaults() Config {
 			TenantHeader:       "X-Maskwire-Key",
 			SessionHeader:      "X-Maskwire-Session",
 		},
-		Keys:   Keys{Version: 1},
-		Audit:  Audit{Enabled: true, Dir: "audit", OnFull: "block", Buffer: 4096},
-		Detect: Detect{Regions: []string{"BR", "PT", "ES", "DE", "FR", "IT"}, PhoneBudget: 64, MaxEntities: 4096},
-		Log:    Log{Level: "info", Format: "json"},
+		Keys:    Keys{Version: 1},
+		Audit:   Audit{Enabled: true, Dir: "audit", OnFull: "block", Buffer: 4096},
+		Detect:  Detect{Regions: []string{"BR", "PT", "ES", "DE", "FR", "IT"}, PhoneBudget: 64, MaxEntities: 4096},
+		Log:     Log{Level: "info", Format: "json"},
+		Tracing: Tracing{SampleRatio: 1},
 	}
 }
 
@@ -239,6 +246,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Audit.Enabled && c.Audit.Dir == "" {
 		errs = append(errs, errors.New("audit.dir is required when audit is enabled"))
+	}
+	if c.Tracing.SampleRatio < 0 || c.Tracing.SampleRatio > 1 {
+		errs = append(errs, errors.New("tracing.sample_ratio must be in 0..1"))
 	}
 	if c.Audit.OnFull != "block" && c.Audit.OnFull != "drop" {
 		errs = append(errs, fmt.Errorf("audit.on_full must be block or drop, got %q", c.Audit.OnFull))

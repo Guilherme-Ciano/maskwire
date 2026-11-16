@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"runtime/debug"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/audit"
@@ -34,6 +36,7 @@ var (
 )
 
 type App struct {
+	tracing *telemetry.Tracing
 	cfg     config.Config
 	keyring *token.Keyring
 	log     *slog.Logger
@@ -70,7 +73,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		KeepReservedEmail: cfg.Detect.KeepReservedEmail,
 	})
 	metrics := telemetry.NewMetrics()
-	a := &App{cfg: cfg, log: log, metrics: metrics}
+	tracing, err := telemetry.NewTracing(context.Background(), telemetry.TracingOptions{
+		Endpoint: cfg.Tracing.Endpoint, SampleRatio: cfg.Tracing.SampleRatio, Version: buildVersion(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		log.Warn("tracing export failed", slog.String("error", err.Error()))
+	}))
+	a := &App{cfg: cfg, log: log, metrics: metrics, tracing: tracing}
 	var auditor httpapi.Auditor
 	if cfg.Audit.Enabled {
 		onFull := audit.Block
@@ -124,6 +136,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		auditor,
 		httpapi.Options{
 			TenantHeader:      cfg.Server.TenantHeader,
+			Tracer:            tracing.Enabled(),
+			Propagator:        tracing.Propagator,
 			SessionHeader:     cfg.Server.SessionHeader,
 			DefaultTenant:     cfg.Server.DefaultTenant,
 			MaxBodyBytes:      cfg.Server.MaxBodyBytes,
@@ -323,7 +337,16 @@ func (a *App) Run(ctx context.Context) error {
 	})
 	err := g.Wait()
 	stopAudit()
-	return errors.Join(err, <-auditDone)
+	tctx, tcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer tcancel()
+	return errors.Join(err, <-auditDone, a.tracing.Shutdown(tctx))
+}
+
+func buildVersion() string {
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
+		return bi.Main.Version
+	}
+	return "dev"
 }
 
 func shutdown(ctx context.Context, s *http.Server) error {

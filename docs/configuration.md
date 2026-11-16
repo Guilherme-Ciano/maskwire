@@ -39,6 +39,8 @@ everything else needs a restart.
 | `detect.max_entities` | integer | `4096` | distinct entities per request before it is rejected with 422 |
 | `log.level` | string | `info` | `debug`, `info`, `warn` or `error` |
 | `log.format` | string | `json` | `json` or `text` |
+| `tracing.endpoint` | string |  | OTLP/HTTP traces endpoint such as `http://jaeger:4318`; empty disables tracing |
+| `tracing.sample_ratio` | number | `1` | fraction of new traces sampled (0-1); incoming sampled parents are always followed |
 | `routes[].name` | string |  | route name used in metrics and audit records |
 | `routes[].path` | string |  | path served by maskwire |
 | `routes[].upstream` | string |  | upstream URL; with a path it is used as is, without one the incoming path is appended |
