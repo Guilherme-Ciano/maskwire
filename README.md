@@ -149,6 +149,9 @@ docker compose up --build -d --wait
 make demo
 ```
 
+`make demo` runs the demo client in a container (compose profile `demo`), so only Docker is needed;
+`make demo-local` runs it with a local Go toolchain instead.
+
 | Service | Host port | Purpose |
 |---|---|---|
 | maskwire | 8090 (`MASKWIRE_PORT`) | proxy |
@@ -339,6 +342,10 @@ The Go code has no comments; `go run ./internal/tools/nocomments` enforces it in
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## Verify a release
+
+Releases are cut by release-please: every Conventional Commit on `main` updates a release pull request with the
+next version and the `CHANGELOG.md` entry, and merging it tags the version and runs goreleaser, which publishes
+multi-arch binaries, an SBOM and a cosign-signed image to GHCR.
 
 ```bash
 cosign verify ghcr.io/guilherme-ciano/maskwire:<version> \
