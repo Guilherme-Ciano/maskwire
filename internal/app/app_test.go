@@ -245,7 +245,10 @@ func TestCompressedUpstreamIsDecoded(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Encoding", "gzip")
 		zw := gzip.NewWriter(w)
-		reply := `{"choices":[{"index":0,"message":{"role":"assistant","content":` + mustJSON(t, string(body)) + `},"finish_reason":"stop"}]}`
+		reply := `{"choices":[{"index":0,"message":{"role":"assistant","content":` + mustJSON(
+			t,
+			string(body),
+		) + `},"finish_reason":"stop"}]}`
 		if _, err := io.WriteString(zw, reply); err != nil {
 			t.Error(err)
 		}
@@ -255,7 +258,10 @@ func TestCompressedUpstreamIsDecoded(t *testing.T) {
 	}))
 	defer gz.Close()
 	h := newHarness(t, func(c *config.Config) {
-		c.Routes = append(c.Routes, config.Route{Name: "gz", Path: "/gz" + chatPath, Upstream: gz.URL + chatPath, Codec: "openai"})
+		c.Routes = append(
+			c.Routes,
+			config.Route{Name: "gz", Path: "/gz" + chatPath, Upstream: gz.URL + chatPath, Codec: "openai"},
+		)
 	})
 	r := h.post("/gz"+chatPath, chatBody(t, false), map[string]string{"Accept-Encoding": "br"})
 	if r.status != http.StatusOK || !sawGzip.Load() {
