@@ -59,6 +59,7 @@ type Route struct {
 	Upstream   *url.URL
 	Codec      Codec
 	Synthesize bool
+	proxy      *httputil.ReverseProxy
 }
 
 type Auditor interface {
@@ -95,6 +96,11 @@ func NewServer(log *slog.Logger, m *telemetry.Metrics, eng *mask.Engine, tenants
 	}
 	for _, t := range tenants {
 		s.byID[t.Mask.ID] = t
+	}
+	for i := range s.routes {
+		if s.routes[i].Codec != nil {
+			s.routes[i].proxy = s.routeProxy(&s.routes[i])
+		}
 	}
 	s.ready.Store(true)
 	return s
@@ -222,6 +228,9 @@ type exchange struct {
 	stats    restore.Stats
 	stream   bool
 	stalled  bool
+	observe  bool
+	masked   []byte
+	onStall  func()
 	status   int
 }
 
@@ -289,36 +298,52 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	s.forward(w, r, x, masked, observe)
 }
 
-func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, masked []byte, observe bool) {
-	ctx, cancel := context.WithCancelCause(r.Context())
-	defer cancel(nil)
-	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-	rp := &httputil.ReverseProxy{
+type exchangeKey struct{}
+
+func exchangeFrom(ctx context.Context) *exchange {
+	x, ok := ctx.Value(exchangeKey{}).(*exchange)
+	if !ok {
+		return nil
+	}
+	return x
+}
+
+func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
 		Transport: s.transport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(x.route.Upstream)
-			if p := x.route.Upstream.Path; p != "" && p != "/" {
+			x := exchangeFrom(pr.In.Context())
+			pr.SetURL(rt.Upstream)
+			if p := rt.Upstream.Path; p != "" && p != "/" {
 				pr.Out.URL.Path, pr.Out.URL.RawPath = p, ""
 			}
 			pr.Out.Header.Del(s.opts.TenantHeader)
 			pr.Out.Header.Del("Content-Length")
 			pr.Out.Header.Set("Accept-Encoding", "identity")
-			pr.Out.Body = io.NopCloser(bytes.NewReader(masked))
-			pr.Out.ContentLength = int64(len(masked))
+			pr.Out.Body = io.NopCloser(bytes.NewReader(x.masked))
+			pr.Out.ContentLength = int64(len(x.masked))
 			pr.Out.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(masked)), nil
+				return io.NopCloser(bytes.NewReader(x.masked)), nil
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			return s.modifyResponse(resp, x, observe, func() {
-				x.stalled = true
-				cancel(codec.ErrUpstreamStalled)
-			})
+			return s.modifyResponse(resp, exchangeFrom(resp.Request.Context()))
 		},
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			s.upstreamError(w, req, x, err)
+			s.upstreamError(w, req, exchangeFrom(req.Context()), err)
 		},
 	}
+}
+
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, masked []byte, observe bool) {
+	ctx, cancel := context.WithCancelCause(r.Context())
+	defer cancel(nil)
+	x.masked, x.observe = masked, observe
+	x.onStall = func() {
+		x.stalled = true
+		cancel(codec.ErrUpstreamStalled)
+	}
+	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
 		x.status = sw.status
 		if v := recover(); v != nil {
@@ -331,10 +356,11 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, ma
 		}
 		s.finish(r, x)
 	}()
-	rp.ServeHTTP(sw, r.WithContext(ctx))
+	x.route.proxy.ServeHTTP(sw, r.WithContext(context.WithValue(ctx, exchangeKey{}, x)))
 }
 
-func (s *Server) modifyResponse(resp *http.Response, x *exchange, observe bool, onStall func()) error {
+func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
+	observe, onStall := x.observe, x.onStall
 	masked := uint64(x.session.Counters().TotalAction(policy.Mask))
 	if observe {
 		masked = 0

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/detect"
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
@@ -50,6 +51,7 @@ type Engine struct {
 	det         SpanDetector
 	maxEntities int
 	rw          *jsonx.Rewriter
+	pool        sync.Pool
 }
 
 func NewEngine(det SpanDetector, maxEntities int) *Engine {
@@ -110,13 +112,14 @@ func (s *Session) SurfaceVariants() int {
 }
 
 func (e *Engine) NewSession(t *Tenant) *Session {
-	return &Session{
-		eng:     e,
-		tenant:  t,
-		observe: t.Policy.Mode == policy.Observe,
-		set:     make(map[Suffix]int),
-		phones:  e.det.NewPhoneState(),
+	s, ok := e.pool.Get().(*Session)
+	if !ok {
+		s = &Session{eng: e, set: make(map[Suffix]int)}
 	}
+	s.tenant = t
+	s.observe = t.Policy.Mode == policy.Observe
+	s.phones = e.det.NewPhoneState()
+	return s
 }
 
 func (s *Session) Counters() *Counters {
@@ -272,12 +275,27 @@ func (s *Session) MaskQuoted(dst, raw []byte) (out []byte, changed bool, err err
 	return jsonx.Quote(dst, masked), true, nil
 }
 
+const maxPooledArena = 1 << 20
+
 func (s *Session) Release() {
 	clear(s.arena)
 	clear(s.scratch)
 	clear(s.canon)
+	clear(s.entries)
+	clear(s.spans)
+	clear(s.set)
 	s.arena = s.arena[:0]
 	s.entries = s.entries[:0]
-	clear(s.set)
+	s.spans = s.spans[:0]
+	s.scratch = s.scratch[:0]
+	s.canon = s.canon[:0]
 	s.variants = 0
+	s.blocked = [entity.Count]bool{}
+	s.counters = Counters{}
+	s.tenant = nil
+	s.phones = nil
+	if cap(s.arena) > maxPooledArena || cap(s.scratch) > maxPooledArena {
+		return
+	}
+	s.eng.pool.Put(s)
 }
