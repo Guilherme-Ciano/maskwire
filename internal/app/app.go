@@ -103,7 +103,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
-		DisableCompression:    true,
+		DisableCompression:    false,
 	}
 	for _, t := range cfg.Tenants {
 		if t.Mode == "observe" {

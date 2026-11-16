@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -227,6 +229,40 @@ func TestUpstreamPathOverride(t *testing.T) {
 	r := h.post("/direct"+chatPath, chatBody(t, false), nil)
 	if r.status != http.StatusOK || !strings.Contains(r.body, "I received: "+prompt) {
 		t.Fatalf("status %d body %s", r.status, r.body)
+	}
+}
+
+func TestCompressedUpstreamIsDecoded(t *testing.T) {
+	t.Parallel()
+	var sawGzip atomic.Bool
+	gz := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		sawGzip.Store(strings.Contains(r.Header.Get("Accept-Encoding"), "gzip"))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Encoding", "gzip")
+		zw := gzip.NewWriter(w)
+		reply := `{"choices":[{"index":0,"message":{"role":"assistant","content":` + mustJSON(t, string(body)) + `},"finish_reason":"stop"}]}`
+		if _, err := io.WriteString(zw, reply); err != nil {
+			t.Error(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer gz.Close()
+	h := newHarness(t, func(c *config.Config) {
+		c.Routes = append(c.Routes, config.Route{Name: "gz", Path: "/gz" + chatPath, Upstream: gz.URL + chatPath, Codec: "openai"})
+	})
+	r := h.post("/gz"+chatPath, chatBody(t, false), map[string]string{"Accept-Encoding": "br"})
+	if r.status != http.StatusOK || !sawGzip.Load() {
+		t.Fatalf("status %d gzip requested %v body %.200s", r.status, sawGzip.Load(), r.body)
+	}
+	if !strings.Contains(r.body, "ana.silva@empresa.com.br") || r.header.Get("Content-Encoding") != "" {
+		t.Fatalf("compressed upstream body must be decoded and restored: %v %.300s", r.header, r.body)
 	}
 }
 

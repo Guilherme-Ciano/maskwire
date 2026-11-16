@@ -319,7 +319,7 @@ func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 			}
 			pr.Out.Header.Del(s.opts.TenantHeader)
 			pr.Out.Header.Del("Content-Length")
-			pr.Out.Header.Set("Accept-Encoding", "identity")
+			pr.Out.Header.Del("Accept-Encoding")
 			pr.Out.Body = io.NopCloser(bytes.NewReader(x.masked))
 			pr.Out.ContentLength = int64(len(x.masked))
 			pr.Out.GetBody = func() (io.ReadCloser, error) {
