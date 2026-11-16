@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -33,7 +34,10 @@ var (
 	date    = "unknown"
 )
 
-var errUnhealthy = errors.New("health check failed")
+var (
+	errUnhealthy = errors.New("health check failed")
+	errWeakKey   = errors.New("tenant key too short")
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -52,7 +56,7 @@ func newRoot() *cobra.Command {
 		SilenceErrors: false,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 	}
-	root.AddCommand(serveCmd(), detectCmd(), auditCmd(), hashKeyCmd(), healthcheckCmd())
+	root.AddCommand(serveCmd(), detectCmd(), auditCmd(), hashKeyCmd(), genKeyCmd(), healthcheckCmd())
 	return root
 }
 
@@ -206,10 +210,37 @@ func hashKeyCmd() *cobra.Command {
 				return fmt.Errorf("read key: %w", err)
 			}
 			key := strings.TrimSpace(line)
-			if key == "" {
-				return errors.New("empty key")
+			if len(key) < config.MinGeneratedKeyLen {
+				return fmt.Errorf(
+					"%w: use at least %d characters, or run maskwire gen-key",
+					errWeakKey,
+					config.MinGeneratedKeyLen,
+				)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), config.HashKey(key))
+			return nil
+		},
+	}
+}
+
+func genKeyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "gen-key",
+		Short: "Generate a random tenant API key and the sha256 to put in tenants[].key_sha256",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			raw := make([]byte, 32)
+			if _, err := rand.Read(raw); err != nil {
+				return fmt.Errorf("generate key: %w", err)
+			}
+			key := "mw_" + base64.RawURLEncoding.EncodeToString(raw)
+			if _, err := fmt.Fprintf(
+				cmd.OutOrStdout(),
+				"key:        %s\nkey_sha256: %s\n",
+				key,
+				config.HashKey(key),
+			); err != nil {
+				return fmt.Errorf("write key: %w", err)
+			}
 			return nil
 		},
 	}

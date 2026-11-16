@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	tenantKey = "demo-key"
+	tenantKey = "mw-demo-0b8e3c1f5a7d9e2b"
 	prompt    = "Escreva para ana.silva@empresa.com.br (CPF 529.982.247-25), IBAN PT50 0002 0123 1234 5678 9015 4."
 	chatPath  = "/v1/chat/completions"
 	keyHeader = "X-Maskwire-Key"
@@ -529,6 +529,7 @@ func TestAuthAndErrors(t *testing.T) {
 		want       int
 	}{
 		{chatPath, chatBody(t, false), map[string]string{keyHeader: "wrong"}, http.StatusUnauthorized},
+		{chatPath, chatBody(t, false), map[string]string{keyHeader: "short"}, http.StatusUnauthorized},
 		{chatPath, "{not json", nil, http.StatusBadRequest},
 		{chatPath, `{"logprobs":true,"messages":[]}`, nil, http.StatusBadRequest},
 		{chatPath, chatBody(t, false), map[string]string{"Content-Encoding": "gzip"}, http.StatusUnsupportedMediaType},

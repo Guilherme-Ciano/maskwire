@@ -23,7 +23,11 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
-const EnvPrefix = "MASKWIRE_"
+const (
+	EnvPrefix          = "MASKWIRE_"
+	MinTenantKeyLen    = 16
+	MinGeneratedKeyLen = 24
+)
 
 var (
 	ErrKeyFilePerms = errors.New("master key file must not be accessible by other users")

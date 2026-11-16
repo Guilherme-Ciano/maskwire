@@ -163,7 +163,7 @@ One request by hand:
 
 ```bash
 curl -sN localhost:8090/direct/v1/chat/completions \
-  -H 'X-Maskwire-Key: demo-key' -H 'Content-Type: application/json' \
+  -H 'X-Maskwire-Key: mw-demo-0b8e3c1f5a7d9e2b' -H 'Content-Type: application/json' \
   -d '{"model":"gpt-4.1-mini","stream":true,"messages":[{"role":"user","content":"Mail ana.souza@correio.pt, CPF 529.982.247-25"}]}'
 curl -s localhost:19000/last
 docker compose exec maskwire /usr/local/bin/maskwire audit verify --dir /var/lib/maskwire/audit
@@ -199,7 +199,7 @@ example `MASKWIRE_SERVER__ADDR`. See [`deploy/maskwire.yaml`](deploy/maskwire.ya
 | `detect.regions` | `BR,PT,ES,DE,FR,IT` | phone number regions |
 | `detect.phone_budget` | `64` | libphonenumber validations per request; beyond that, phone-shaped runs (with `+`, parentheses or a keyword) are masked unvalidated |
 | `routes[]` | | `name`, `path`, `upstream`, `codec`, `synthesize_stream`. Codecs: `openai` (Chat Completions), `openai-responses` (Responses API, including streamed events), `openai-embeddings` (masks `input` before it is embedded), `anthropic` (Messages and `count_tokens`), `passthrough` (GET only, no body, for routes such as `/v1/models`; still needs the tenant key) |
-| `tenants[]` | | `id`, `key_sha256` (`maskwire hash-key`), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`), `prompt_hint` (adds a short instruction to copy placeholders verbatim whenever a request carries tokens; off by default because it changes the prompt), `response_scan` (`observe`, the default, counts personal data the model generated itself in `maskwire_response_detections_total` and the audit record; `off`) |
+| `tenants[]` | | `id`, `key_sha256` (`maskwire gen-key` creates a key and its hash; `hash-key` hashes an existing one of at least 24 characters), `mode` (`enforce`, `observe`), `default` action, `by_type` rules with `action` and `min_score`, `token_length` (5-10), `foreign_token` (`generic`, `keep`), `prompt_hint` (adds a short instruction to copy placeholders verbatim whenever a request carries tokens; off by default because it changes the prompt), `response_scan` (`observe`, the default, counts personal data the model generated itself in `maskwire_response_detections_total` and the audit record; `off`) |
 
 An upstream URL with a path is used as is; without a path, the incoming path is appended.
 

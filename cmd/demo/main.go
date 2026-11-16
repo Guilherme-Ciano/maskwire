@@ -72,7 +72,7 @@ func run(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	proxy := fs.String("proxy", "http://localhost:8090", "maskwire base URL")
 	mock := fs.String("mock", "http://localhost:19000", "mockllm base URL")
-	key := fs.String("key", "demo-key", "tenant key")
+	key := fs.String("key", "mw-demo-0b8e3c1f5a7d9e2b", "tenant key")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}

@@ -37,6 +37,7 @@ const (
 	HeaderRestored   = "X-Maskwire-Restored"
 
 	statusClientClosed = 499
+	minTenantKey       = 16
 )
 
 var (
@@ -203,6 +204,9 @@ func (s *Server) authenticate(r *http.Request) (*Tenant, error) {
 		if t, ok := s.byID[s.opts.DefaultTenant]; ok {
 			return t, nil
 		}
+		return nil, ErrUnauthorized
+	}
+	if len(key) < minTenantKey {
 		return nil, ErrUnauthorized
 	}
 	sum := sha256.Sum256([]byte(key))

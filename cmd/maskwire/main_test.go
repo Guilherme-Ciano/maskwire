@@ -42,12 +42,19 @@ func TestDetectCommand(t *testing.T) {
 }
 
 func TestHashKeyCommand(t *testing.T) {
-	out, _, err := run(t, "demo-key\n", "hash-key")
-	if err != nil || strings.TrimSpace(out) != config.HashKey("demo-key") {
+	key := "mw-demo-0b8e3c1f5a7d9e2b"
+	out, _, err := run(t, key+"\n", "hash-key")
+	if err != nil || strings.TrimSpace(out) != config.HashKey(key) {
 		t.Fatalf("%q %v", out, err)
 	}
-	if _, _, err := run(t, "\n", "hash-key"); err == nil {
-		t.Fatal("an empty key must be refused")
+	for _, weak := range []string{"\n", "demo-key\n"} {
+		if _, _, err := run(t, weak, "hash-key"); err == nil {
+			t.Fatalf("%q must be refused", weak)
+		}
+	}
+	gen, _, err := run(t, "", "gen-key")
+	if err != nil || !strings.Contains(gen, "key:        mw_") || !strings.Contains(gen, "key_sha256: ") {
+		t.Fatalf("gen-key: %q %v", gen, err)
 	}
 }
 

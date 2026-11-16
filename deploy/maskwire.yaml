@@ -43,7 +43,7 @@ routes:
     codec: passthrough
 tenants:
   - id: demo
-    key_sha256: c48a01f49fd0f2cc404bc3cbbc80e91457a3d41bb429a695243de4c61794155c
+    key_sha256: ce104b0fe84d8767b5eadecfce7a9eeb1b0022dd26a3f45087e3c0b1f31aed87
     mode: enforce
     default: mask
     foreign_token: generic
@@ -51,5 +51,5 @@ tenants:
       CREDIT_CARD:
         action: block
   - id: globex
-    key_sha256: f2a455b59b858a04c51108416af2042203cb6ac35fa4141fba4148bc856e78d4
+    key_sha256: 79312c08c8432501ead35082d96b572576b2a6ff3fd736c451128f02726bd748
     mode: observe
