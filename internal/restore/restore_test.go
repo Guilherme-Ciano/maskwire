@@ -2,6 +2,7 @@ package restore
 
 import (
 	"bytes"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"testing"
@@ -354,5 +355,56 @@ func TestToolWithhold(t *testing.T) {
 	out = s.Flush(out)
 	if string(out) != want {
 		t.Fatalf("stream got %s", out)
+	}
+}
+
+func TestTriggerMaskMatchesTable(t *testing.T) {
+	t.Parallel()
+	for _, json := range []bool{false, true} {
+		table := newTriggers(json)
+		for c := range 256 {
+			for pos := range 8 {
+				x := uint64(c) << (8 * pos)
+				for k := range 8 {
+					if k != pos {
+						x |= uint64('a') << (8 * k)
+					}
+				}
+				got := triggerMask(x, json)>>(8*pos+7)&1 == 1
+				if got != table[c] {
+					t.Fatalf("json=%v byte %#x at %d: mask %v table %v", json, c, pos, got, table[c])
+				}
+			}
+		}
+	}
+}
+
+func TestBareImpossibleImpliesReject(t *testing.T) {
+	t.Parallel()
+	alphabet := []byte("ABCDEFGHJKMNPQRSTVWXYZ0123456789IiLlOoUu_- \\[]<>(){}%\"abcxyz.,\n")
+	rng := rand.New(rand.NewPCG(21, 34))
+	for _, enc := range []Encoding{Raw, JSONString} {
+		s := NewStream(set, Options{Encoding: enc})
+		hits := 0
+		for range 200000 {
+			n := 1 + rng.IntN(16)
+			b := make([]byte, n)
+			b[0] = byte('A' + rng.IntN(26))
+			for k := 1; k < n; k++ {
+				b[k] = alphabet[rng.IntN(len(alphabet))]
+			}
+			if !s.bareImpossible(b) {
+				continue
+			}
+			hits++
+			for _, eof := range []bool{false, true} {
+				if m := matchToken(b, ' ', enc == JSONString, eof); m.res != reject {
+					t.Fatalf("enc=%v eof=%v %q: pre-check rejected a %v match", enc, eof, b, m.res)
+				}
+			}
+		}
+		if hits < 10000 {
+			t.Fatalf("pre-check rejected only %d inputs", hits)
+		}
 	}
 }

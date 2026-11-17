@@ -88,12 +88,19 @@ var specs = [typeCount]spec{
 	DateOfBirth: {name: "DOB", label: "DOB", lower: "dob", priority: priorityMedium, canon: CanonDigits},
 }
 
-var labels = func() map[string]Type {
-	m := make(map[string]Type, typeCount)
+const labelBuckets = 128
+
+func labelSlot(b []byte) int {
+	return (len(b)*37 + int(b[0])*7 + int(b[len(b)-1])) & (labelBuckets - 1)
+}
+
+var labels = func() [labelBuckets][]Type {
+	var ix [labelBuckets][]Type
 	for t := Unknown + 1; t < typeCount; t++ {
 		if t != IPPrivate {
-			m[specs[t].label] = t
+			k := labelSlot([]byte(specs[t].label))
+			ix[k] = append(ix[k], t)
 		}
 	}
-	return m
+	return ix
 }()

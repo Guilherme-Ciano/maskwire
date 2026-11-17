@@ -91,8 +91,13 @@ func LabelFold(b []byte) (Type, bool) {
 		}
 		up[i] = c
 	}
-	t, ok := labels[string(up[:len(b)])]
-	return t, ok
+	key := up[:len(b)]
+	for _, t := range labels[labelSlot(key)] {
+		if specs[t].label == string(key) {
+			return t, true
+		}
+	}
+	return Unknown, false
 }
 
 const Count = int(typeCount)

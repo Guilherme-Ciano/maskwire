@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
+	"github.com/Guilherme-Ciano/maskwire/internal/swar"
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
@@ -400,31 +401,23 @@ func crockford(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z' && c != 'I' && c != 'L' && c != 'O' && c != 'U')
 }
 
-func canonicalToken(b []byte, final bool) (match, bool) {
-	var m match
-	partial := func() (match, bool) {
-		if final {
-			return m, false
-		}
-		m.res = partial
-		return m, true
-	}
+func canonicalToken(m *match, b []byte, final bool) bool {
 	if len(b) == 0 || b[0] != '[' {
-		return m, false
+		return false
 	}
 	i := 1
 	for i < len(b) && i <= entity.MaxLabelLen && b[i] >= 'A' && b[i] <= 'Z' {
 		i++
 	}
 	if i == len(b) && i <= entity.MaxLabelLen {
-		return partial()
+		return pending(m, final)
 	}
 	if i == 1 || i >= len(b) || b[i] != '_' {
-		return m, false
+		return false
 	}
 	t, known := entity.LabelFold(b[1:i])
 	if !known {
-		return m, false
+		return false
 	}
 	i++
 	start := i
@@ -432,14 +425,22 @@ func canonicalToken(b []byte, final bool) (match, bool) {
 		i++
 	}
 	if i == len(b) && i-start < token.MaxLength {
-		return partial()
+		return pending(m, final)
 	}
 	n := i - start
 	if n < minSuffix || i >= len(b) || b[i] != ']' {
-		return m, false
+		return false
 	}
 	m.res, m.n, m.typ, m.canonical, m.slen = full, i+1, t, true, copy(m.suffix[:], b[start:i])
-	return m, true
+	return true
+}
+
+func pending(m *match, final bool) bool {
+	if final {
+		return false
+	}
+	m.res = partial
+	return true
 }
 
 func matchToken(b []byte, prev byte, json, eof bool) match {
@@ -517,14 +518,80 @@ func newTriggers(json bool) triggers {
 	return t
 }
 
+func triggerMask(x uint64, json bool) uint64 {
+	m := swar.InRange(x, 'A', '\\') | swar.Eq(x, '<') | swar.Eq(x, '(') | swar.Eq(x, '{') | swar.Eq(x, '%') |
+		swar.Eq(x, 0xE3)
+	if json {
+		m |= swar.Eq(x, '"')
+	}
+	return m
+}
+
 func (s *Stream) nextTrigger(b []byte) int {
+	json := s.triggers['"']
+	k := 0
+	for ; k+swar.Width <= len(b); k += swar.Width {
+		if m := triggerMask(swar.Load(b, k), json); m != 0 {
+			return k + swar.First(m)
+		}
+	}
 	t := &s.triggers
-	for k, c := range b {
-		if t[c] {
+	for ; k < len(b); k++ {
+		if t[b[k]] {
 			return k
 		}
 	}
 	return -1
+}
+
+func (s *Stream) plainWord(b []byte, j, limit int, prev byte) int {
+	c := b[j]
+	if c < 'A' || c > 'Z' || (bareCandidate(b, j, prev) && !s.bareImpossible(b[j:limit])) {
+		return j
+	}
+	k := j + 1
+	for k < limit && wordByte(b[k]) {
+		k++
+	}
+	return k
+}
+
+func (s *Stream) bareImpossible(b []byte) bool {
+	k := 0
+	for k < len(b) && b[k] >= 'A' && b[k] <= 'Z' {
+		k++
+	}
+	if k == len(b) || b[k] == '-' {
+		return false
+	}
+	json := s.opts.Encoding == JSONString
+	sep := k
+	for range maxSeparators {
+		switch {
+		case sep >= len(b):
+			return false
+		case b[sep] == '_' || b[sep] == '-' || b[sep] == ' ':
+			sep++
+			continue
+		case b[sep] == '\\' && !json:
+			if sep+1 >= len(b) {
+				return false
+			}
+			if b[sep+1] == '_' {
+				sep += 2
+				continue
+			}
+		}
+		break
+	}
+	if sep == k {
+		return true
+	}
+	if sep >= len(b) {
+		return false
+	}
+	_, ok := token.CrockfordFold(b[sep])
+	return !ok
 }
 
 func bareCandidate(b []byte, j int, prev byte) bool {
@@ -554,9 +621,9 @@ func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out [
 		}
 		j += i
 		dst = append(dst, b[i:j]...)
-		if c := b[j]; c >= 'A' && c <= 'Z' && !bareCandidate(b, j, prev) {
-			dst = append(dst, c)
-			i = j + 1
+		if k := s.plainWord(b, j, limit, prev); k > j {
+			dst = append(dst, b[j:k]...)
+			i = k
 			continue
 		}
 		if b[j] == '"' {
@@ -573,8 +640,8 @@ func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out [
 			}
 			continue
 		}
-		m, fast := canonicalToken(b[j:], final)
-		if !fast {
+		var m match
+		if !canonicalToken(&m, b[j:], final) {
 			m = matchToken(b[j:], before(b, j, prev), s.opts.Encoding == JSONString, final)
 		}
 		switch m.res {
