@@ -16,6 +16,7 @@ everything else needs a restart.
 | `server.read_timeout` | duration | `30s` | time allowed to read the whole request |
 | `server.idle_timeout` | duration | `2m0s` | keep-alive idle timeout for client connections |
 | `server.upstream_timeout` | duration | `1m0s` | time to upstream response headers before a 504 |
+| `server.upstream_h2c` | bool |  | speak cleartext HTTP/2 to http:// upstreams such as local vLLM or Ollama servers |
 | `server.stream_idle_timeout` | duration | `1m0s` | longest wait for upstream bytes in a stream before it is cut; 0 disables |
 | `server.shutdown_drain_delay` | duration | `5s` | time `/readyz` reports not ready before the listener closes |
 | `server.shutdown_timeout` | duration | `20s` | time in-flight requests get to finish on shutdown |

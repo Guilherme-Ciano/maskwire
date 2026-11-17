@@ -107,6 +107,7 @@ type Server struct {
 	routes    []Route
 	transport http.RoundTripper
 	bufs      bufpool.Pool
+	copies    copyBuffers
 	auditor   Auditor
 	opts      Options
 	ready     atomic.Bool
@@ -229,7 +230,8 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt *Route) 
 	}
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 	rp := &httputil.ReverseProxy{
-		Transport: s.transport,
+		Transport:  s.transport,
+		BufferPool: &s.copies,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(rt.Upstream)
 			pr.Out.Header.Del(s.opts.TenantHeader)
@@ -448,7 +450,8 @@ func exchangeFrom(ctx context.Context) *exchange {
 
 func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
-		Transport: s.upstreamTransport(rt),
+		Transport:  s.upstreamTransport(rt),
+		BufferPool: &s.copies,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			x := exchangeFrom(pr.In.Context())
 			pr.SetURL(rt.Upstream)

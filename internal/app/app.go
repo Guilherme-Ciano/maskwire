@@ -124,17 +124,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			func() float64 { return float64(w.Dropped()) },
 		)
 	}
-	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          512,
-		MaxIdleConnsPerHost:   256,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: cfg.Server.UpstreamTimeout,
-		DisableCompression:    false,
-	}
+	transport := upstreamTransport(cfg.Server)
 	warnTenants(cfg, log)
 	cfg.Keys.MasterKey = ""
 	a.cfg = cfg
@@ -393,4 +383,42 @@ func shutdown(ctx context.Context, s *http.Server) error {
 		return errors.Join(fmt.Errorf("shutdown %s: %w", s.Addr, err), s.Close())
 	}
 	return nil
+}
+
+const (
+	upstreamIdleConns = 1024
+	upstreamIdlePer   = 512
+	upstreamIOBuffer  = 64 << 10
+	h2ReadIdle        = 30 * time.Second
+	h2PingTimeout     = 10 * time.Second
+	h2ConnWindow      = 3 << 20
+	h2StreamWindow    = 1 << 20
+)
+
+func upstreamTransport(c config.Server) *http.Transport {
+	t := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          upstreamIdleConns,
+		MaxIdleConnsPerHost:   upstreamIdlePer,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: c.UpstreamTimeout,
+		ReadBufferSize:        upstreamIOBuffer,
+		WriteBufferSize:       upstreamIOBuffer,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout:               h2ReadIdle,
+			PingTimeout:                   h2PingTimeout,
+			MaxReceiveBufferPerConnection: h2ConnWindow,
+			MaxReceiveBufferPerStream:     h2StreamWindow,
+		},
+	}
+	if c.UpstreamH2C {
+		var p http.Protocols
+		p.SetHTTP2(true)
+		p.SetUnencryptedHTTP2(true)
+		t.Protocols = &p
+	}
+	return t
 }

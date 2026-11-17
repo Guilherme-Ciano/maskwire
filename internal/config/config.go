@@ -60,6 +60,7 @@ type Server struct {
 	ReadTimeout        time.Duration `koanf:"read_timeout"`
 	IdleTimeout        time.Duration `koanf:"idle_timeout"`
 	UpstreamTimeout    time.Duration `koanf:"upstream_timeout"`
+	UpstreamH2C        bool          `koanf:"upstream_h2c"`
 	StreamIdleTimeout  time.Duration `koanf:"stream_idle_timeout"`
 	ShutdownDrainDelay time.Duration `koanf:"shutdown_drain_delay"`
 	ShutdownTimeout    time.Duration `koanf:"shutdown_timeout"`
