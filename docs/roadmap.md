@@ -4,7 +4,7 @@ Today maskwire is the fastest way to keep Brazilian and European personal data o
 requests without losing streaming. Every number below is measured in this repository:
 
 - +0.22 ms added p50 at 2,000 req/s;
-- 423 MB/s of detection per core;
+- 447 MB/s of detection per core;
 - 0 tokens deformed or invented by three Claude models;
 - about four orders of magnitude faster than Presidio, with 0% false alarms on dates and order numbers.
 
@@ -59,8 +59,8 @@ plain number on its own.
 
 | # | Item | Metric to move | Effort |
 |---|---|---|---|
-| 4.1 | A SIMD-friendly byte-class scanner and an Aho-Corasick keyword automaton | Clean text from 423 MB/s to 1 GB/s per core | M |
-| 4.2 | Zero-allocation restore and pooled SSE buffers | Streaming restore from 234 MB/s to above 300 MB/s with the relaxed grammar | M |
+| 4.1 | A SIMD-friendly byte-class scanner and an Aho-Corasick keyword automaton | Clean text from 447 MB/s to 1 GB/s per core | M |
+| 4.2 | Zero-allocation restore and pooled SSE buffers | Streaming restore from 237 MB/s to above 300 MB/s with the relaxed grammar | M |
 | 4.3 | Constant-memory streaming of very large request bodies | 100 MB bodies with flat memory | M |
 | 4.4 | Upstream HTTP/2 tuning and connection reuse per tenant | ≤ +0.1 ms p50 and ≤ +0.3 ms p99 added at 5,000 req/s | S |
 

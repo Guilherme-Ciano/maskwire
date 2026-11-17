@@ -1,0 +1,162 @@
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/app
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+BenchmarkProxyRequest 	    4303	    262025 ns/op	   8.76 MB/s	  104889 B/op	     363 allocs/op
+BenchmarkProxyRequest 	    4266	    273504 ns/op	   8.39 MB/s	  104872 B/op	     363 allocs/op
+BenchmarkProxyRequest 	    4095	    278938 ns/op	   8.23 MB/s	  104873 B/op	     363 allocs/op
+BenchmarkProxyRequest 	    4399	    255908 ns/op	   8.97 MB/s	  104871 B/op	     363 allocs/op
+BenchmarkProxyRequest 	    4304	    254714 ns/op	   9.01 MB/s	  104871 B/op	     363 allocs/op
+BenchmarkProxyRequest 	    4411	    253438 ns/op	   9.06 MB/s	  104870 B/op	     363 allocs/op
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/app	6.804s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/audit	0.003s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/codec	0.002s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/codec/anthropic	0.007s
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/codec/openai
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+BenchmarkMaskRequest  	   41614	     28856 ns/op	 146.28 MB/s	    4654 B/op	      18 allocs/op
+BenchmarkMaskRequest  	   41494	     28857 ns/op	 146.27 MB/s	    4652 B/op	      18 allocs/op
+BenchmarkMaskRequest  	   41660	     28892 ns/op	 146.09 MB/s	    4652 B/op	      18 allocs/op
+BenchmarkMaskRequest  	   41806	     28755 ns/op	 146.79 MB/s	    4652 B/op	      18 allocs/op
+BenchmarkMaskRequest  	   41844	     28888 ns/op	 146.11 MB/s	    4652 B/op	      18 allocs/op
+BenchmarkMaskRequest  	   40744	     30274 ns/op	 139.43 MB/s	    4652 B/op	      18 allocs/op
+BenchmarkRestoreBody  	   42960	     27792 ns/op	 150.15 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkRestoreBody  	   42338	     28199 ns/op	 147.99 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkRestoreBody  	   43538	     28050 ns/op	 148.77 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkRestoreBody  	   43120	     28044 ns/op	 148.80 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkRestoreBody  	   42301	     28301 ns/op	 147.45 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkRestoreBody  	   42387	     28241 ns/op	 147.77 MB/s	   22489 B/op	      19 allocs/op
+BenchmarkStreamEvents 	     357	   3335202 ns/op	  58.91 MB/s	  684940 B/op	   14810 allocs/op
+BenchmarkStreamEvents 	     358	   3324864 ns/op	  59.10 MB/s	  684916 B/op	   14809 allocs/op
+BenchmarkStreamEvents 	     360	   3331560 ns/op	  58.98 MB/s	  684916 B/op	   14809 allocs/op
+BenchmarkStreamEvents 	     358	   3357835 ns/op	  58.52 MB/s	  684918 B/op	   14809 allocs/op
+BenchmarkStreamEvents 	     357	   3375450 ns/op	  58.21 MB/s	  684918 B/op	   14809 allocs/op
+BenchmarkStreamEvents 	     358	   3343268 ns/op	  58.77 MB/s	  684917 B/op	   14809 allocs/op
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/codec/openai	21.685s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/config	0.003s
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/detect
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+BenchmarkDetect/clean/1KB         	  506816	      2373 ns/op	 431.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/1KB         	  495999	      2367 ns/op	 432.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/1KB         	  498864	      2367 ns/op	 432.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/1KB         	  500913	      2392 ns/op	 428.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/1KB         	  493766	      2365 ns/op	 433.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/1KB         	  498909	      2381 ns/op	 430.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  130303	      9202 ns/op	 445.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  129118	      9184 ns/op	 446.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  131377	      9146 ns/op	 447.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  130988	      9177 ns/op	 446.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  130966	      9144 ns/op	 447.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/4KB         	  131042	      9122 ns/op	 449.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8144	    142380 ns/op	 460.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8313	    142562 ns/op	 459.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8235	    147860 ns/op	 443.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8182	    141501 ns/op	 463.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8221	    142321 ns/op	 460.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/clean/64KB        	    8133	    141410 ns/op	 463.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDetect/dense/1KB         	   39794	     30137 ns/op	  33.98 MB/s	     282 B/op	       3 allocs/op
+BenchmarkDetect/dense/1KB         	   39816	     30188 ns/op	  33.92 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/1KB         	   39644	     30272 ns/op	  33.83 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/1KB         	   39909	     30114 ns/op	  34.00 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/1KB         	   39783	     30202 ns/op	  33.91 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/1KB         	   39776	     30220 ns/op	  33.89 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	   10000	    119388 ns/op	  34.31 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	   10000	    119290 ns/op	  34.34 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	    9861	    119912 ns/op	  34.16 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	   10000	    119491 ns/op	  34.28 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	   10000	    119499 ns/op	  34.28 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/4KB         	    9999	    119345 ns/op	  34.32 MB/s	     280 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     628	   1913759 ns/op	  34.24 MB/s	     436 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     624	   1913992 ns/op	  34.24 MB/s	     437 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     626	   1937352 ns/op	  33.83 MB/s	     437 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     615	   1918013 ns/op	  34.17 MB/s	     439 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     627	   1907285 ns/op	  34.36 MB/s	     436 B/op	       3 allocs/op
+BenchmarkDetect/dense/64KB        	     628	   1936022 ns/op	  33.85 MB/s	     436 B/op	       3 allocs/op
+BenchmarkDetectNames              	   35386	     34168 ns/op	 119.88 MB/s	     177 B/op	      33 allocs/op
+BenchmarkDetectNames              	   34934	     34263 ns/op	 119.55 MB/s	     177 B/op	      33 allocs/op
+BenchmarkDetectNames              	   35485	     34091 ns/op	 120.15 MB/s	     177 B/op	      33 allocs/op
+BenchmarkDetectNames              	   35337	     34111 ns/op	 120.08 MB/s	     177 B/op	      33 allocs/op
+BenchmarkDetectNames              	   34339	     34184 ns/op	 119.82 MB/s	     177 B/op	      33 allocs/op
+BenchmarkDetectNames              	   35566	     34189 ns/op	 119.80 MB/s	     177 B/op	      33 allocs/op
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/detect	50.160s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/detect/checksum	0.003s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/entity	0.002s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/eval	0.008s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/httpapi	0.010s
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/jsonx
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+BenchmarkRewriteLargeUnchanged 	     240	   4986665 ns/op	 316.85 MB/s	      40 B/op	       0 allocs/op
+BenchmarkRewriteLargeUnchanged 	     244	   4919251 ns/op	 321.19 MB/s	      39 B/op	       0 allocs/op
+BenchmarkRewriteLargeUnchanged 	     242	   4962089 ns/op	 318.42 MB/s	      40 B/op	       0 allocs/op
+BenchmarkRewriteLargeUnchanged 	     241	   4962799 ns/op	 318.37 MB/s	      40 B/op	       0 allocs/op
+BenchmarkRewriteLargeUnchanged 	     242	   4934807 ns/op	 320.18 MB/s	      40 B/op	       0 allocs/op
+BenchmarkRewriteLargeUnchanged 	     240	   4964640 ns/op	 318.25 MB/s	      40 B/op	       0 allocs/op
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/jsonx	7.193s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/mask	0.009s
+?   	github.com/Guilherme-Ciano/maskwire/internal/mockllm	[no test files]
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/policy	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/restore
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+BenchmarkRestoreStream/chunk=1         	     633	   1891365 ns/op	  34.65 MB/s	     782 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=1         	     633	   1893465 ns/op	  34.61 MB/s	     782 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=1         	     633	   1893593 ns/op	  34.61 MB/s	     782 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=1         	     627	   1912943 ns/op	  34.26 MB/s	     783 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=1         	     633	   1892662 ns/op	  34.63 MB/s	     782 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=1         	     633	   1896139 ns/op	  34.56 MB/s	     782 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2385	    499916 ns/op	 131.09 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2404	    500547 ns/op	 130.93 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2409	    496975 ns/op	 131.87 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2406	    499410 ns/op	 131.23 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2386	    500378 ns/op	 130.97 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=8         	    2386	    501372 ns/op	 130.71 MB/s	     677 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4315	    276647 ns/op	 236.89 MB/s	     660 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4333	    276303 ns/op	 237.19 MB/s	     660 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4302	    275996 ns/op	 237.45 MB/s	     660 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4305	    276330 ns/op	 237.17 MB/s	     660 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4306	    276016 ns/op	 237.44 MB/s	     660 B/op	       1 allocs/op
+BenchmarkRestoreStream/chunk=64        	    4332	    276277 ns/op	 237.21 MB/s	     660 B/op	       1 allocs/op
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/restore	21.539s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/sse	0.003s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/telemetry	0.005s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/token	0.002s
+?   	github.com/Guilherme-Ciano/maskwire/internal/tools/compare	[no test files]
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/tools/configdoc	0.002s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/tools/covbadge	0.002s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/tools/covergate	0.002s
+?   	github.com/Guilherme-Ciano/maskwire/internal/tools/democast	[no test files]
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/tools/evalreport	0.008s
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/tools/nocomments	0.002s
+?   	github.com/Guilherme-Ciano/maskwire/internal/tools/survival	[no test files]
+PASS
+ok  	github.com/Guilherme-Ciano/maskwire/internal/vault	0.008s
