@@ -54,6 +54,9 @@ and workflows start with read-only `contents` permission, widening it per job on
 
 Repository settings the workflows expect:
 
+- Settings → Actions → General → Workflow permissions: "Read and write permissions" and "Allow GitHub Actions
+  to create and approve pull requests", or release-please fails with "GitHub Actions is not permitted to create or
+  approve pull requests". The GitHub App option below avoids needing this.
 - Branch protection on `main` requiring the `ci`, `codeql` and `pr-title` checks, and "Allow auto-merge".
 - GitHub Pages is not needed; the coverage badge is read from the `badges` branch, which `ci` creates.
 - Optional: a GitHub App with `RELEASE_APP_CLIENT_ID` (variable) and `RELEASE_APP_PRIVATE_KEY` (secret), so the
