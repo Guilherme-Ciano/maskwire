@@ -32,6 +32,7 @@ everything else needs a restart.
 | `audit.on_full` | string | `block` | `block` waits for the writer when its buffer is full; `drop` counts and drops |
 | `audit.buffer` | integer | `4096` | audit events buffered in memory |
 | `audit.anchor_file` | string |  | append chain heads here every 5 s for `audit verify --anchors`; keep it off the audit volume |
+| `audit.retention_days` | integer |  | delete day files older than this many days through a sealed retention ledger, so verification still passes; 0 keeps everything |
 | `detect.regions` | list of string | `BR,PT,ES,DE,FR,IT` | regions used to parse and validate phone numbers |
 | `detect.phone_budget` | integer | `64` | libphonenumber validations per request; beyond it, phone-shaped runs are masked unvalidated |
 | `detect.disable_phone` | bool |  | turn phone detection off |

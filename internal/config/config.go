@@ -82,7 +82,8 @@ type Audit struct {
 	OnFull  string `koanf:"on_full"`
 	Buffer  int    `koanf:"buffer"`
 
-	AnchorFile string `koanf:"anchor_file"`
+	AnchorFile    string `koanf:"anchor_file"`
+	RetentionDays int    `koanf:"retention_days"`
 }
 
 type Detect struct {

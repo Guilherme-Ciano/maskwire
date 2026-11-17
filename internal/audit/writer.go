@@ -48,7 +48,8 @@ type Options struct {
 	OnFull OnFull
 	Now    func() time.Time
 
-	AnchorPath string
+	AnchorPath    string
+	RetentionDays int
 }
 
 type chain struct {
@@ -73,6 +74,8 @@ type Writer struct {
 	written atomic.Uint64
 	dropped atomic.Uint64
 	failed  atomic.Bool
+
+	lastPrune time.Time
 }
 
 func NewWriter(o Options, log *slog.Logger) (*Writer, error) {
@@ -236,6 +239,7 @@ func (w *Writer) sync(touched map[*chain]struct{}) {
 
 func (w *Writer) maintain() {
 	w.anchor()
+	w.prune()
 	now := w.opts.Now()
 	for key, c := range w.chains {
 		if now.Sub(c.used) > idleClose {

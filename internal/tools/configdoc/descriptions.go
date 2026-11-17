@@ -36,6 +36,7 @@ func descriptions() map[string]string {
 		"audit.on_full":                      "`block` waits for the writer when its buffer is full; `drop` counts and drops",
 		"audit.buffer":                       "audit events buffered in memory",
 		"audit.anchor_file":                  "append chain heads here every 5 s for `audit verify --anchors`; keep it off the audit volume",
+		"audit.retention_days":               "delete day files older than this many days through a sealed retention ledger, so verification still passes; 0 keeps everything",
 		"detect.regions":                     "regions used to parse and validate phone numbers",
 		"detect.phone_budget":                "libphonenumber validations per request; beyond it, phone-shaped runs are masked unvalidated",
 		"detect.disable_phone":               "turn phone detection off",

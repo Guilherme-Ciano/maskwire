@@ -365,6 +365,31 @@ maskwire audit verify --dir audit --config maskwire.yaml --anchors /mnt/worm/mas
 Any anchored head that is no longer in its file, or an anchored file that is gone, fails verification. Records
 written in the last 5 seconds before an attack are not covered.
 
+### For the DPO
+
+```bash
+maskwire audit report --dir audit --config maskwire.yaml --from 2026-11-01 --to 2026-11-30
+```
+
+verifies the log first, then summarises per tenant: recipients (upstream hosts) and models, categories of personal
+data with the safeguard applied to each (mask, redact, block, allow), restores and foreign-token events, and data
+the model generated itself. That is the evidence a record of processing activities (GDPR Art. 30) needs; `--format
+json` gives the same for other tools.
+
+Signed checkpoints make the log verifiable by someone who does not hold the master key's trust: generate a key pair
+once, keep the private key off the audit host, and sign the current heads on a schedule:
+
+```bash
+maskwire audit keygen --out /secure/keys
+maskwire audit checkpoint --dir audit --key /secure/keys/audit-ed25519.key --out checkpoints.jsonl
+maskwire audit verify --dir audit --checkpoints checkpoints.jsonl --pubkey audit-ed25519.pub
+```
+
+`audit.retention_days` deletes day files older than that many days. Before deleting, maskwire records the last
+deleted day and the link the next surviving day depends on in a sealed per-tenant retention ledger, so
+verification still passes after retention and a deleted or edited ledger is detected. The AI Act's six-month floor
+for deployer logs (Art. 26(6)) means a value of at least 184 if that applies to you.
+
 ## Benchmarks
 
 <!-- bench:start -->

@@ -36,8 +36,9 @@ var (
 )
 
 var (
-	errUnhealthy = errors.New("health check failed")
-	errWeakKey   = errors.New("tenant key too short")
+	errUnhealthy  = errors.New("health check failed")
+	errWeakKey    = errors.New("tenant key too short")
+	errNeedPubkey = errors.New("--checkpoints needs --pubkey")
 )
 
 func main() {
@@ -203,47 +204,6 @@ func auditSealer(path string) (*audit.Sealer, error) {
 	}
 	defer clear(key)
 	return audit.NewSealer(key), nil
-}
-
-func auditCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "audit", Short: "Audit log tools"}
-	var dir, path, anchorsPath string
-	verify := &cobra.Command{
-		Use:   "verify",
-		Short: "Verify the HMAC chain of every tenant and day file under the audit directory",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			sealer, err := auditSealer(path)
-			if err != nil {
-				return err
-			}
-			var anchors audit.Anchors
-			if anchorsPath != "" {
-				if anchors, err = audit.ReadAnchors(anchorsPath); err != nil {
-					return err
-				}
-			}
-			rep, err := audit.VerifyDir(dir, sealer, anchors)
-			if err != nil {
-				return err
-			}
-			out := cmd.OutOrStdout()
-			for f, head := range rep.Head {
-				if _, err := fmt.Fprintf(out, "ok\t%s\thead=%s\n", f, head); err != nil {
-					return fmt.Errorf("write report: %w", err)
-				}
-			}
-			if _, err := fmt.Fprintf(out, "verified %d files, %d records\n", rep.Files, rep.Records); err != nil {
-				return fmt.Errorf("write report: %w", err)
-			}
-			return nil
-		},
-	}
-	verify.Flags().StringVar(&dir, "dir", "audit", "audit directory")
-	verify.Flags().
-		StringVar(&anchorsPath, "anchors", "", "anchor file written by audit.anchor_file; detects truncated or deleted files")
-	verify.Flags().StringVar(&path, "config", "", "config file holding the master key (or MASKWIRE_CONFIG / env)")
-	cmd.AddCommand(verify)
-	return cmd
 }
 
 func hashKeyCmd() *cobra.Command {

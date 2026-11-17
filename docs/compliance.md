@@ -20,7 +20,7 @@ text that reaches the provider is still personal data for you, because you can r
 | Art. 25(1) | Data protection by design, naming pseudonymisation as an example measure | Deny-by-default request walking, foreign-token guard, `tool_restore` allow-lists, per-tenant policies | Choosing policies per use case and documenting that choice |
 | Art. 32(1)(a) | Security of processing, naming pseudonymisation and encryption | Pseudonymisation of identifiers in transit to the provider | Encryption, TLS to the provider, host hardening, key management |
 | Art. 28 | Processor contracts | Does not change the provider's role; the provider still processes personal data on your behalf | A data processing agreement with the LLM provider |
-| Art. 30 | Records of processing activities | The audit log records per request which entity types were found and what was done, with no values | The record itself; the audit log is evidence for it, not a substitute |
+| Art. 30 | Records of processing activities | The audit log records per request which entity types were found and what was done, with no values; `maskwire audit report` summarises recipients, categories and safeguards per tenant | The record itself; the audit log is evidence for it, not a substitute |
 | Art. 44-49 | Transfers to third countries | Identifiers in the prompt are replaced before the transfer, and the re-identification key stays in the EU if maskwire runs there; the EDPB treats pseudonymisation with a key kept by the exporter as a possible supplementary measure | The transfer mechanism (adequacy, SCCs) and a transfer impact assessment; context in the prompt can still identify people |
 | Art. 9 | Special categories | Not detected. Free-text health, religion, ethnicity or sexual orientation pass through | Keeping special-category data out of prompts, or a separate safeguard |
 
@@ -43,7 +43,7 @@ for the current wording and application dates before relying on these rows.
 | Provision | What it says, in short | What maskwire contributes | What remains with you |
 |---|---|---|---|
 | Art. 12 | High-risk systems must allow automatic recording of events (logs) over their lifetime | An HMAC-chained, per-request audit record of the LLM calls that go through it, verifiable with `maskwire audit verify --anchors` | Logging of the AI system itself: inputs, outputs and human verification as the system's own design requires |
-| Art. 26(6) | Deployers keep the automatically generated logs under their control for at least six months, unless other law says otherwise | Audit files are daily JSONL per tenant; keeping them six months or more is a retention setting on your storage, and anchors detect truncation | The retention policy, and reconciling it with GDPR storage limitation |
+| Art. 26(6) | Deployers keep the automatically generated logs under their control for at least six months, unless other law says otherwise | Audit files are daily JSONL per tenant; `audit.retention_days` deletes old days without breaking verification, and anchors or Ed25519-signed checkpoints detect truncation | The retention policy, and reconciling it with GDPR storage limitation |
 
 ## LGPD (Lei 13.709/2018, Brazil)
 

@@ -95,6 +95,31 @@ func TestAuditVerifyCommand(t *testing.T) {
 	if err != nil || !strings.Contains(out, "verified 1 files, 2 records") {
 		t.Fatalf("%q %v", out, err)
 	}
+	keys := t.TempDir()
+	if out, _, err := run(t, "", "audit", "keygen", "--out", keys); err != nil || !strings.Contains(out, "public key") {
+		t.Fatalf("keygen %q %v", out, err)
+	}
+	cps := filepath.Join(t.TempDir(), "cp.jsonl")
+	if _, _, err := run(t, "", "audit", "checkpoint", "--dir", dir, "--key", filepath.Join(keys, "audit-ed25519.key"),
+		"--out", cps); err != nil {
+		t.Fatal(err)
+	}
+	pub := filepath.Join(keys, "audit-ed25519.pub")
+	if out, _, err := run(t, "", "audit", "verify", "--dir", dir, "--checkpoints", cps, "--pubkey", pub); err != nil ||
+		!strings.Contains(out, "verified 1 files") {
+		t.Fatalf("verify with checkpoints %q %v", out, err)
+	}
+	if _, _, err := run(t, "", "audit", "verify", "--dir", dir, "--checkpoints", cps); err == nil {
+		t.Fatal("checkpoints without a public key accepted")
+	}
+	out, _, err = run(t, "", "audit", "report", "--dir", dir)
+	if err != nil || !strings.Contains(out, "## Tenant `acme`") {
+		t.Fatalf("report %q %v", out, err)
+	}
+	if out, _, err = run(t, "", "audit", "report", "--dir", dir, "--format", "json"); err != nil ||
+		!strings.Contains(out, `"tenant":"acme"`) {
+		t.Fatalf("json report %q %v", out, err)
+	}
 	t.Setenv("MASKWIRE_KEYS__MASTER_KEY", strings.Repeat("ab", 32))
 	if _, _, err := run(t, "", "audit", "verify", "--dir", dir); err == nil {
 		t.Fatal("a different master key must fail verification")

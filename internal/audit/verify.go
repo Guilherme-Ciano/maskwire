@@ -141,7 +141,7 @@ type Report struct {
 	Head    map[string]string
 }
 
-func checkLink(cur, prev *FileResult) error {
+func checkLink(cur, prev *FileResult, l ledger) error {
 	if cur.Open == nil {
 		if prev == nil {
 			return nil
@@ -149,7 +149,7 @@ func checkLink(cur, prev *FileResult) error {
 		return &ChainError{cur.Path, 1, "missing open record linking to the previous day"}
 	}
 	if prev == nil {
-		if cur.Open.PrevDay != "" {
+		if cur.Open.PrevDay != "" && !l.covers(cur.Open.PrevDay, cur.Open.PrevDayHead) {
 			return &ChainError{cur.Path, 1, "previous day " + cur.Open.PrevDay + " is missing"}
 		}
 		return nil
@@ -163,40 +163,61 @@ func checkLink(cur, prev *FileResult) error {
 	return nil
 }
 
+func verifyTenant(
+	dir, tenant string,
+	sealer *Sealer,
+	anchors Anchors,
+	rep *Report,
+	seen map[string]bool,
+) (string, error) {
+	files, err := dayFiles(dir, tenant)
+	if err != nil {
+		return "", err
+	}
+	l, err := readLedger(dir, tenant, sealer)
+	if err != nil {
+		return "", err
+	}
+	var prev *FileResult
+	for _, path := range files {
+		res, err := VerifyFile(path, sealer)
+		rep.Files++
+		rep.Records += res.Records
+		if err != nil {
+			return "", err
+		}
+		if err := checkLink(&res, prev, l); err != nil {
+			return "", err
+		}
+		key := anchorKey(tenant, dayOf(path))
+		if err := anchors.check(key, &res); err != nil {
+			return "", err
+		}
+		seen[key] = true
+		rep.Head[path] = hashPrefix + hex.EncodeToString(res.Head[:])
+		prev = &res
+	}
+	return l.deletedThrough(), nil
+}
+
 func VerifyDir(dir string, sealer *Sealer, anchors Anchors) (Report, error) {
 	rep := Report{Head: map[string]string{}}
 	seen := map[string]bool{}
+	expired := map[string]string{}
 	tenants, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
 		return rep, fmt.Errorf("list tenants: %w", err)
 	}
 	for _, t := range tenants {
-		files, err := dayFiles(dir, filepath.Base(t))
+		through, err := verifyTenant(dir, filepath.Base(t), sealer, anchors, &rep, seen)
 		if err != nil {
 			return rep, err
 		}
-		var prev *FileResult
-		for _, path := range files {
-			res, err := VerifyFile(path, sealer)
-			rep.Files++
-			rep.Records += res.Records
-			if err != nil {
-				return rep, err
-			}
-			if err := checkLink(&res, prev); err != nil {
-				return rep, err
-			}
-			key := anchorKey(filepath.Base(t), dayOf(path))
-			if err := anchors.check(key, &res); err != nil {
-				return rep, err
-			}
-			seen[key] = true
-			rep.Head[path] = hashPrefix + hex.EncodeToString(res.Head[:])
-			prev = &res
-		}
+		expired[filepath.Base(t)] = through
 	}
 	for file := range anchors {
-		if !seen[file] {
+		tenant, day := filepath.Dir(file), dayOf(file)
+		if !seen[file] && (expired[tenant] == "" || day > expired[tenant]) {
 			return rep, &ChainError{filepath.Join(dir, file), 0, "anchored file is missing"}
 		}
 	}
