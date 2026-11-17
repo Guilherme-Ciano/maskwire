@@ -2,7 +2,6 @@ package detect
 
 import (
 	"bytes"
-	"encoding/binary"
 	"math/bits"
 	"net/netip"
 	"slices"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/Guilherme-Ciano/maskwire/internal/detect/checksum"
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
+	"github.com/Guilherme-Ciano/maskwire/internal/swar"
 )
 
 const (
@@ -563,20 +563,6 @@ type foldTable struct {
 	class  [256]byte
 }
 
-const (
-	lanes = 0x0101010101010101
-	highs = 0x8080808080808080
-	lows  = 0x7f7f7f7f7f7f7f7f
-)
-
-func lowerOrSpace(x uint64) (plain, spaces uint64) {
-	ascii := ^x & highs
-	lower := (x + 0x1f*lanes) &^ (x + 0x05*lanes) & ascii
-	y := x ^ ' '*lanes
-	spaces = ^((y&lows + lows) | y | lows)
-	return lower | spaces, spaces
-}
-
 func advanceWord(word, i, n int, spaces uint64) int {
 	if spaces == 0 {
 		if word < 0 && n > 0 {
@@ -595,8 +581,8 @@ func (f *foldTable) skip(t []byte, i int, secret *[256]bool) int {
 	word := -1
 	for i < len(t) {
 		if i+8 <= len(t) {
-			plain, spaces := lowerOrSpace(binary.LittleEndian.Uint64(t[i:]))
-			stop := ^plain & highs
+			plain, spaces := swar.LowerOrSpace(swar.Load(t, i))
+			stop := ^plain & swar.Highs
 			if stop == 0 {
 				word = advanceWord(word, i, 8, spaces)
 				i += 8

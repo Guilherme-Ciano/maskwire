@@ -37,25 +37,3 @@ func TestSkipKeepsDetections(t *testing.T) {
 		}
 	}
 }
-
-func TestLowerOrSpaceExhaustive(t *testing.T) {
-	t.Parallel()
-	for c := range 256 {
-		for pos := range 8 {
-			x := uint64(c) << (8 * pos)
-			for k := range 8 {
-				if k != pos {
-					x |= uint64('a') << (8 * k)
-				}
-			}
-			plain, spaces := lowerOrSpace(x)
-			b := byte(c)
-			if got := plain>>(8*pos+7)&1 == 1; got != (isLower(b) || b == ' ') {
-				t.Fatalf("byte %#x at %d: plain %v", c, pos, got)
-			}
-			if got := spaces>>(8*pos+7)&1 == 1; got != (b == ' ') {
-				t.Fatalf("byte %#x at %d: space %v", c, pos, got)
-			}
-		}
-	}
-}
