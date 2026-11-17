@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/img/banner.png" alt="maskwire: reversible, streaming-safe PII masking for the OpenAI and Anthropic APIs. The provider sees tokens; your users see their data." width="100%"></p>
+
 # maskwire
 
 > Reversible, streaming-safe PII pseudonymisation for LLM APIs, in a single Go binary.
@@ -489,13 +491,27 @@ cosign verify ghcr.io/guilherme-ciano/maskwire:<version> \
 
 ## Roadmap
 
-- [x] v0.1: OpenAI and Anthropic codecs (JSON and SSE), checksum validators, HMAC tokens, streaming restore,
-      policies, foreign-token guard, HMAC-chained audit, Prometheus metrics, mock upstream, compose demo
-- [ ] v0.2: full incremental JSON lexer for tool-argument deltas, response scanning in observe mode, Redis vault
-      with AES-GCM for multi-turn sessions, Ed25519-signed audit checkpoints
-- [ ] v0.3: names via gazetteers and heuristics, published precision and recall per type and language
-- [ ] v0.4: optional ONNX NER behind a build tag, with a per-request time budget
-- [ ] Namespace isolation in semantic-cache-gateway ([details](docs/semantic-cache-gateway.md))
+Shipped:
+- OpenAI Chat, Responses and Embeddings and Anthropic codecs, with streaming restore.
+- 17 checksum-validated national IDs, plus names as a preview.
+- Token scopes, an encrypted cross-turn vault and tool-argument restore policies.
+- Signed audit checkpoints, retention and DPO reports.
+- OpenTelemetry tracing.
+- A public evaluation and a Presidio comparison.
+
+Next, in [docs/roadmap.md](docs/roadmap.md), every item tied to a metric:
+- **Cover the world with the same rigour:** IDs for the Americas, Brazil, Asia-Pacific, Africa and the rest of the
+  EU, and national phone formats everywhere.
+- **Context, not just patterns:** JSON key hints, a calibrated scoring model, names in 50+ languages, an optional
+  NER pass only on the residue, addresses, dates of birth, Art. 9 data, secrets, quasi-identifiers and custom
+  recognizers.
+- **Out-measure everyone in public:** a multilingual benchmark and leaderboard against Presidio, LLM Guard, AWS
+  Comprehend and Google DLP, plus token survival across every major provider.
+- **Faster than anyone needs:** 1 GB/s per core and at most +0.1 ms p50.
+- **Everywhere LLM traffic flows:** Gemini, Bedrock, Azure, local models, Realtime, MCP, a LiteLLM plugin, Envoy, Helm and a
+  WASM playground.
+- **Enterprise trust:** KMS-backed keys, WORM and SIEM audit sinks, data-residency policies, an admin UI and an
+  independent audit.
 
 ## License
 
