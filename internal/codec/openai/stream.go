@@ -72,7 +72,10 @@ type StreamBody struct {
 	done     bool
 	err      error
 	idle     *codec.IdleReader
-	header   jsontext.Value
+	last     []byte
+	plain    []byte
+	enc      []byte
+	parser   *chunkParser
 	changed  bool
 	events   int
 	dropped  int
@@ -88,6 +91,7 @@ func NewStreamBody(src io.ReadCloser, set restore.Set, o codec.StreamOptions) *S
 		opts:    o.Restore,
 		idle:    idle,
 		onClose: o.OnClose,
+		parser:  newChunkParser(),
 	}
 }
 
@@ -226,7 +230,7 @@ func hasNoPayload(extra jsontext.Value) bool {
 	if err := json.Unmarshal(extra, &p); err != nil {
 		return false
 	}
-	return len(p.Usage) == 0 || string(p.Usage) == "null"
+	return len(p.Usage) == 0 || string(p.Usage) == jsonNull
 }
 
 func (b *StreamBody) channel(k channelKey) (*restore.Stream, error) {
@@ -266,6 +270,9 @@ func (b *StreamBody) feed(k channelKey, s *string) error {
 }
 
 func (b *StreamBody) rewrite(data []byte) (encoded []byte, keep bool, err error) {
+	if b.parser != nil && b.parser.parse(data) {
+		return b.rewriteFast(data, &b.parser.c)
+	}
 	var c sChunk
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, false, fmt.Errorf("decode chunk: %w", err)
@@ -273,7 +280,7 @@ func (b *StreamBody) rewrite(data []byte) (encoded []byte, keep bool, err error)
 	if len(c.Choices) == 0 {
 		return data, true, nil
 	}
-	b.header = append(b.header[:0], c.Extra...)
+	b.last = append(b.last[:0], data...)
 	if err := b.reserve(c.Choices); err != nil {
 		return nil, false, err
 	}
@@ -403,8 +410,9 @@ func (b *StreamBody) flushAll(dst []byte) []byte {
 	}
 	var c sChunk
 	c.Extra = jsontext.Value(`{"object":"chat.completion.chunk"}`)
-	if len(b.header) > 0 {
-		c.Extra = withoutUsage(b.header)
+	var prev sChunk
+	if len(b.last) > 0 && json.Unmarshal(b.last, &prev) == nil && len(prev.Extra) > 0 {
+		c.Extra = withoutUsage(prev.Extra)
 	}
 	for i := range b.channels {
 		ch := &b.channels[i]

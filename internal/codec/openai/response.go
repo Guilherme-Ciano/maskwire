@@ -159,7 +159,7 @@ func Synthesize(dst, body []byte) ([]byte, error) {
 			return dst, err
 		}
 	}
-	if len(c.Usage) > 0 && string(c.Usage) != "null" {
+	if len(c.Usage) > 0 && string(c.Usage) != jsonNull {
 		if dst, err = emit(dst, synthChunk{Choices: []synthChoice{}, Usage: c.Usage}); err != nil {
 			return dst, err
 		}
