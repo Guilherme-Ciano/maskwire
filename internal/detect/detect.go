@@ -44,6 +44,7 @@ type Detector struct {
 	phoneWords    [][]byte
 	secrets       *secretIndex
 	fold          *foldTable
+	phoneCache    *phoneCache
 }
 
 func New(o Options) *Detector {
@@ -55,6 +56,7 @@ func New(o Options) *Detector {
 	}
 	d.rules = newRuleIndex()
 	d.fold = newFoldTable()
+	d.phoneCache = newPhoneCache()
 	d.phoneWords = toBytes(phoneWords())
 	if !o.DisableSecrets {
 		d.secrets = newSecretIndex()
@@ -797,8 +799,8 @@ func (s *scanner) tryPhone(i, end int) bool {
 		return false
 	}
 	stop := s.groups[end].end
-	raw := string(s.text[start:stop])
-	valid, cached := s.phoneState.seen[raw]
+	raw := s.text[start:stop]
+	valid, cached := s.phoneState.seen[string(raw)]
 	switch {
 	case cached:
 	case s.phoneState.Budget <= 0:
@@ -817,28 +819,40 @@ func (s *scanner) tryPhone(i, end int) bool {
 	return true
 }
 
-func (s *scanner) validPhone(raw string, plus bool) bool {
-	regions := s.d.regions
-	if plus {
-		regions = []string{""}
-	}
-	valid := false
-	for _, region := range regions {
-		if s.phoneState.Budget <= 0 {
+func (s *scanner) validPhone(raw []byte, plus bool) bool {
+	key := s.d.phoneCache.key(raw, plus)
+	valid, known := s.d.phoneCache.get(key)
+	if !known {
+		var done bool
+		valid, done = s.parsePhone(string(raw), plus)
+		if !done {
 			return false
 		}
-		s.phoneState.Budget--
-		num, err := phonenumbers.Parse(raw, region)
-		if err == nil && phonenumbers.IsValidNumber(num) {
-			valid = true
-			break
-		}
+		s.d.phoneCache.put(key, valid)
 	}
 	if s.phoneState.seen == nil {
 		s.phoneState.seen = map[string]bool{}
 	}
-	s.phoneState.seen[raw] = valid
+	s.phoneState.seen[string(raw)] = valid
 	return valid
+}
+
+func (s *scanner) parsePhone(raw string, plus bool) (valid, done bool) {
+	regions := s.d.regions
+	if plus {
+		regions = []string{""}
+	}
+	for _, region := range regions {
+		if s.phoneState.Budget <= 0 {
+			return false, false
+		}
+		s.phoneState.Budget--
+		num, err := phonenumbers.Parse(raw, region)
+		if err == nil && phonenumbers.IsValidNumber(num) {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 func (s *scanner) emit(start, end int, t entity.Type) {
