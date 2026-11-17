@@ -199,21 +199,66 @@ func (sc *scorer) result(docs int) Result {
 	return res
 }
 
-func Run(seed uint64, docs int, thresholds []float32) []Result {
+func corpus(seed uint64, docs int) []doc {
 	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
-	det := detect.New(detect.Options{Names: true})
 	values, negs := g.values(), g.negatives()
-	corpus := make([]doc, docs)
-	for i := range corpus {
-		corpus[i] = g.doc(values, negs)
-	}
-	out := make([]Result, 0, len(thresholds))
-	for _, th := range thresholds {
-		sc := &scorer{th: th, types: map[entity.Type]*TypeResult{}, negs: map[string]*NegResult{}, detect: det.Detect}
-		for i := range corpus {
-			sc.score(&corpus[i])
-		}
-		out = append(out, sc.result(docs))
+	out := make([]doc, docs)
+	for i := range out {
+		out[i] = g.doc(values, negs)
 	}
 	return out
+}
+
+func runWith(
+	c []doc,
+	thresholds []float32,
+	detectFn func(i int, dst []entity.Span, text []byte) []entity.Span,
+) []Result {
+	out := make([]Result, 0, len(thresholds))
+	for _, th := range thresholds {
+		sc := &scorer{th: th, types: map[entity.Type]*TypeResult{}, negs: map[string]*NegResult{}}
+		for i := range c {
+			sc.detect = func(dst []entity.Span, text []byte) []entity.Span { return detectFn(i, dst, text) }
+			sc.score(&c[i])
+		}
+		out = append(out, sc.result(len(c)))
+	}
+	return out
+}
+
+func Run(seed uint64, docs int, thresholds []float32) []Result {
+	det := detect.New(detect.Options{Names: true})
+	return runWith(corpus(seed, docs), thresholds, func(_ int, dst []entity.Span, text []byte) []entity.Span {
+		return det.Detect(dst, text)
+	})
+}
+
+type ExportDoc struct {
+	Text string `json:"text"`
+}
+
+func Export(seed uint64, docs int) []ExportDoc {
+	c := corpus(seed, docs)
+	out := make([]ExportDoc, len(c))
+	for i := range c {
+		out[i] = ExportDoc{Text: string(c[i].text)}
+	}
+	return out
+}
+
+type ExternalSpan struct {
+	Start int     `json:"start"`
+	End   int     `json:"end"`
+	Type  string  `json:"type"`
+	Score float32 `json:"score"`
+}
+
+func RunExternal(seed uint64, docs int, thresholds []float32, preds [][]ExternalSpan) []Result {
+	return runWith(corpus(seed, docs), thresholds, func(i int, dst []entity.Span, _ []byte) []entity.Span {
+		for _, p := range preds[i] {
+			t, _ := entity.Parse(p.Type)
+			dst = append(dst, entity.Span{Start: p.Start, End: p.End, Type: t, Score: p.Score})
+		}
+		return dst
+	})
 }
