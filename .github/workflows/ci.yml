@@ -38,6 +38,14 @@ jobs:
         run: sed -n '/## min_score 0.0/,/## min_score 0.7/p' docs/evaluation.md >> "$GITHUB_STEP_SUMMARY"
   test:
     runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 15
+    env:
+      MASKWIRE_TEST_REDIS_ADDR: 127.0.0.1:6379
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with: { egress-policy: audit }

@@ -599,6 +599,40 @@ func TestTokenScopes(t *testing.T) {
 	}
 }
 
+func TestCrossTurnRestoreFromVault(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, func(c *config.Config) {
+		c.Vault = config.Vault{Backend: "memory", TTL: time.Hour, MaxEntries: 1000}
+		c.Tenants[0].TokenScope = "session"
+		c.Tenants[0].CrossTurn = true
+		c.Tenants = append(c.Tenants, config.Tenant{
+			ID: "nocross", KeySHA256: config.HashKey("mw-nocross-0123456789abcdef"), TokenScope: "session",
+		})
+	})
+	conv1 := map[string]string{"X-Maskwire-Session": "conv-1"}
+	h.post(chatPath, chatBody(t, false), conv1)
+	tok := tokenRE.FindString(h.upstreamSaw(false))
+	if !strings.HasPrefix(tok, "[EMAIL_") {
+		t.Fatalf("no e-mail token in %q", tok)
+	}
+	later := mustJSON(t, map[string]any{
+		"model": "m", "messages": []any{map[string]string{"role": "user", "content": "follow up on " + tok}},
+	})
+	if r := h.post(chatPath, later, conv1); !strings.Contains(r.body, "ana.silva@empresa.com.br") {
+		t.Fatalf("earlier-turn token not restored: %s", r.body)
+	}
+	other := h.post(chatPath, later, map[string]string{"X-Maskwire-Session": "conv-2"})
+	if strings.Contains(other.body, "ana.silva") || !strings.Contains(other.body, "[email]") {
+		t.Fatalf("token restored across sessions: %s", other.body)
+	}
+	plain := h.post(chatPath, later, map[string]string{
+		"X-Maskwire-Session": "conv-1", keyHeader: "mw-nocross-0123456789abcdef",
+	})
+	if strings.Contains(plain.body, "ana.silva") {
+		t.Fatalf("token restored for a tenant without the vault: %s", plain.body)
+	}
+}
+
 func TestOverheadMetric(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

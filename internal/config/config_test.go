@@ -168,3 +168,38 @@ func TestRateLimitValidation(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestVaultValidation(t *testing.T) {
+	base := func() Config {
+		c := Defaults()
+		c.Keys.MasterKey = strings.Repeat("ab", 32)
+		c.Routes = []Route{{Name: "r", Path: "/v1/chat/completions", Upstream: "http://x", Codec: "openai"}}
+		c.Tenants = []Tenant{
+			{ID: "t", KeySHA256: HashKey("0123456789abcdef0123"), TokenScope: "session", CrossTurn: true},
+		}
+		return c
+	}
+	c := base()
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "cross_turn_restore") {
+		t.Fatalf("cross-turn without vault: %v", err)
+	}
+	c = base()
+	c.Vault.Backend = "redis"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "redis_addr") {
+		t.Fatalf("redis without addr: %v", err)
+	}
+	c = base()
+	c.Vault.Backend = "etcd"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "vault.backend") {
+		t.Fatalf("unknown backend: %v", err)
+	}
+	c = base()
+	c.Vault.Backend = "memory"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.Tenants[0].TokenScope = "tenant"
+	if err := c.Validate(); err == nil {
+		t.Fatal("cross-turn with tenant scope accepted")
+	}
+}

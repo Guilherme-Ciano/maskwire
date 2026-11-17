@@ -85,6 +85,14 @@ func (k *TenantKey) Derive(scope []byte) *TenantKey {
 	return &TenantKey{key: m.Sum(nil)}
 }
 
+func (k *TenantKey) Secret(label string) []byte {
+	m := hmac.New(sha256.New, k.key)
+	m.Write([]byte("maskwire-secret-v1"))
+	m.Write([]byte{0})
+	m.Write([]byte(label))
+	return m.Sum(nil)
+}
+
 func AppendSuffix(dst []byte, sum *[32]byte, n int) []byte {
 	n = min(max(n, 1), MaxLength)
 	var acc uint64

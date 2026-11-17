@@ -138,6 +138,21 @@ func (s *Session) UseKey(k *token.TenantKey) {
 	s.key = k
 }
 
+func (s *Session) Key() *token.TenantKey {
+	return s.key
+}
+
+func (s *Session) Each(fn func(suffix []byte, t entity.Type, orig []byte, numeric bool)) {
+	for key, idx := range s.set {
+		e := s.entries[idx]
+		n := 0
+		for n < len(key) && key[n] != 0 {
+			n++
+		}
+		fn(key[:n], e.typ, s.arena[e.origFrom:e.origTo], e.numeric)
+	}
+}
+
 func (s *Session) Counters() *Counters {
 	return &s.counters
 }

@@ -199,6 +199,32 @@ Try the detector on its own:
 echo "CPF 529.982.247-25, IBAN DE89 3704 0044 0532 0130 00" | go run ./cmd/maskwire detect
 ```
 
+## Restoring tokens from earlier turns
+
+By default only tokens issued for the current request are restored. In a long conversation the model may repeat a
+token from an earlier turn that is no longer in the request, for example after the client trimmed the history,
+and the foreign-token guard then turns it into `[email]`. Tenants with `token_scope: session` can opt into
+`cross_turn_restore`:
+
+```yaml
+vault:
+  backend: redis
+  redis_addr: redis:6379
+  ttl: 24h
+tenants:
+  - id: acme
+    token_scope: session
+    cross_turn_restore: true
+```
+
+After masking, maskwire writes the request's token-to-value mapping to the vault. Each value is sealed with
+AES-256-GCM under a key derived from the master key, the tenant and the `X-Maskwire-Session` id, and stored under a
+key derived the same way, so a dump of Redis reveals neither values nor session ids. When a response contains a
+token this request did not issue, maskwire looks it up in that conversation's vault before falling back to the
+guard. Tokens never restore across conversations or tenants. Session ids work as bearer capabilities within a
+tenant: use random, unguessable ids. A failed vault write is logged and counted in `maskwire_vault_errors_total`,
+and the request still goes through. The `memory` backend is for a single instance.
+
 ## Use as a Go library
 
 The detector, tokens and restorer are also available without the proxy, for batch jobs or for apps that call

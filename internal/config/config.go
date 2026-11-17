@@ -48,6 +48,7 @@ type Config struct {
 	Detect  Detect   `koanf:"detect"`
 	Log     Log      `koanf:"log"`
 	Tracing Tracing  `koanf:"tracing"`
+	Vault   Vault    `koanf:"vault"`
 	Routes  []Route  `koanf:"routes"`
 	Tenants []Tenant `koanf:"tenants"`
 }
@@ -92,6 +93,14 @@ type Detect struct {
 	MaxEntities       int      `koanf:"max_entities"`
 }
 
+type Vault struct {
+	Backend           string        `koanf:"backend"`
+	RedisAddr         string        `koanf:"redis_addr"`
+	RedisPasswordFile string        `koanf:"redis_password_file"`
+	TTL               time.Duration `koanf:"ttl"`
+	MaxEntries        int           `koanf:"max_entries"`
+}
+
 type Tracing struct {
 	Endpoint    string  `koanf:"endpoint"`
 	SampleRatio float64 `koanf:"sample_ratio"`
@@ -127,6 +136,7 @@ type Tenant struct {
 	Foreign      string          `koanf:"foreign_token"`
 	ToolRestore  []string        `koanf:"tool_restore"`
 	TokenScope   string          `koanf:"token_scope"`
+	CrossTurn    bool            `koanf:"cross_turn_restore"`
 	RateLimit    RateLimit       `koanf:"rate_limit"`
 }
 
@@ -156,6 +166,7 @@ func Defaults() Config {
 		Detect:  Detect{Regions: []string{"BR", "PT", "ES", "DE", "FR", "IT"}, PhoneBudget: 64, MaxEntities: 4096},
 		Log:     Log{Level: "info", Format: "json"},
 		Tracing: Tracing{SampleRatio: 1},
+		Vault:   Vault{TTL: 24 * time.Hour, MaxEntries: 1_000_000},
 	}
 }
 
@@ -247,6 +258,7 @@ func (c *Config) Validate() error {
 	if c.Audit.Enabled && c.Audit.Dir == "" {
 		errs = append(errs, errors.New("audit.dir is required when audit is enabled"))
 	}
+	errs = append(errs, c.validateVault()...)
 	if c.Tracing.SampleRatio < 0 || c.Tracing.SampleRatio > 1 {
 		errs = append(errs, errors.New("tracing.sample_ratio must be in 0..1"))
 	}
@@ -294,6 +306,32 @@ func (r Route) validate(i int, paths map[string]bool) []error {
 			i,
 			r.Codec,
 		))
+	}
+	return errs
+}
+
+func (c *Config) validateVault() []error {
+	var errs []error
+	switch c.Vault.Backend {
+	case "", "memory":
+	case "redis":
+		if c.Vault.RedisAddr == "" {
+			errs = append(errs, errors.New("vault.redis_addr is required for the redis backend"))
+		}
+	default:
+		errs = append(errs, errors.New("vault.backend must be memory or redis"))
+	}
+	if c.Vault.Backend != "" && c.Vault.TTL <= 0 {
+		errs = append(errs, errors.New("vault.ttl must be positive"))
+	}
+	for i := range c.Tenants {
+		t := &c.Tenants[i]
+		if t.CrossTurn && (t.TokenScope != "session" || c.Vault.Backend == "") {
+			errs = append(
+				errs,
+				fmt.Errorf("tenants[%d].cross_turn_restore needs token_scope: session and a vault.backend", i),
+			)
+		}
 	}
 	return errs
 }

@@ -12,7 +12,10 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,6 +30,7 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
 	"github.com/Guilherme-Ciano/maskwire/internal/telemetry"
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
+	"github.com/Guilherme-Ciano/maskwire/internal/vault"
 )
 
 var (
@@ -36,13 +40,14 @@ var (
 )
 
 type App struct {
-	tracing *telemetry.Tracing
-	cfg     config.Config
-	keyring *token.Keyring
-	log     *slog.Logger
-	metrics *telemetry.Metrics
-	api     *httpapi.Server
-	auditor *audit.Writer
+	closeVault func() error
+	tracing    *telemetry.Tracing
+	cfg        config.Config
+	keyring    *token.Keyring
+	log        *slog.Logger
+	metrics    *telemetry.Metrics
+	api        *httpapi.Server
+	auditor    *audit.Writer
 }
 
 func New(cfg config.Config, log *slog.Logger) (*App, error) {
@@ -83,6 +88,11 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Warn("tracing export failed", slog.String("error", err.Error()))
 	}))
 	a := &App{cfg: cfg, log: log, metrics: metrics, tracing: tracing}
+	v, closeVault, err := buildVault(cfg.Vault)
+	if err != nil {
+		return nil, err
+	}
+	a.closeVault = closeVault
 	var auditor httpapi.Auditor
 	if cfg.Audit.Enabled {
 		onFull := audit.Block
@@ -137,6 +147,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		httpapi.Options{
 			TenantHeader:      cfg.Server.TenantHeader,
 			Tracer:            tracing.Enabled(),
+			Vault:             v,
 			Propagator:        tracing.Propagator,
 			SessionHeader:     cfg.Server.SessionHeader,
 			DefaultTenant:     cfg.Server.DefaultTenant,
@@ -221,6 +232,7 @@ func buildTenants(cfg config.Config, kr *token.Keyring) ([]*httpapi.Tenant, erro
 			ToolWithhold: withhold,
 			Limit:        httpapi.NewLimiter(t.RateLimit.RPS, t.RateLimit.Burst),
 			Scope:        scope(t.TokenScope),
+			CrossTurn:    t.CrossTurn,
 			PromptHint:   t.PromptHint,
 			ResponseScan: t.ResponseScan != "off",
 		})
@@ -339,7 +351,31 @@ func (a *App) Run(ctx context.Context) error {
 	stopAudit()
 	tctx, tcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer tcancel()
-	return errors.Join(err, <-auditDone, a.tracing.Shutdown(tctx))
+	return errors.Join(err, <-auditDone, a.tracing.Shutdown(tctx), a.closeVault())
+}
+
+func buildVault(c config.Vault) (*vault.Vault, func() error, error) {
+	switch c.Backend {
+	case "memory":
+		return vault.New(vault.NewMemory(c.MaxEntries), c.TTL), func() error { return nil }, nil
+	case "redis":
+		password := ""
+		if c.RedisPasswordFile != "" {
+			b, err := os.ReadFile(filepath.Clean(c.RedisPasswordFile))
+			if err != nil {
+				return nil, nil, fmt.Errorf("read vault redis password: %w", err)
+			}
+			password = strings.TrimSpace(string(b))
+		}
+		r := vault.NewRedis(c.RedisAddr, password)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.Ping(ctx); err != nil {
+			return nil, nil, errors.Join(err, r.Close())
+		}
+		return vault.New(r, c.TTL), r.Close, nil
+	}
+	return nil, func() error { return nil }, nil
 }
 
 func buildVersion() string {

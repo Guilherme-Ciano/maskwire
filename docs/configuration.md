@@ -41,6 +41,11 @@ everything else needs a restart.
 | `log.format` | string | `json` | `json` or `text` |
 | `tracing.endpoint` | string |  | OTLP/HTTP traces endpoint such as `http://jaeger:4318`; empty disables tracing |
 | `tracing.sample_ratio` | number | `1` | fraction of new traces sampled (0-1); incoming sampled parents are always followed |
+| `vault.backend` | string |  | store for cross-turn restore: `memory` (single instance) or `redis`; empty disables it |
+| `vault.redis_addr` | string |  | Redis address for the `redis` backend |
+| `vault.redis_password_file` | string |  | file holding the Redis password |
+| `vault.ttl` | duration | `24h0m0s` | how long a conversation's tokens stay restorable after its last request |
+| `vault.max_entries` | integer | `1000000` | entry limit of the `memory` backend |
 | `routes[].name` | string |  | route name used in metrics and audit records |
 | `routes[].path` | string |  | path served by maskwire |
 | `routes[].upstream` | string |  | upstream URL; with a path it is used as is, without one the incoming path is appended |
@@ -58,5 +63,6 @@ everything else needs a restart.
 | `tenants[].foreign_token` | string |  | tokens not issued for the request become `[email]` (`generic`) or stay as they are (`keep`) |
 | `tenants[].tool_restore` | list of string |  | entity types restored inside tool-call arguments: `all`, `none` or a list of types |
 | `tenants[].token_scope` | string |  | `tenant` (deterministic), `session` (per `X-Maskwire-Session`) or `request` (fresh per request) |
+| `tenants[].cross_turn_restore` | bool |  | restore tokens issued in earlier requests of the same `X-Maskwire-Session`; needs `token_scope: session` and a vault |
 | `tenants[].rate_limit.rps` | number |  | requests per second; 0 disables the limit |
 | `tenants[].rate_limit.burst` | integer |  | bucket size; defaults to the rate rounded up |

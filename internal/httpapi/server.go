@@ -32,6 +32,7 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/policy"
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
 	"github.com/Guilherme-Ciano/maskwire/internal/telemetry"
+	"github.com/Guilherme-Ciano/maskwire/internal/vault"
 )
 
 const (
@@ -61,6 +62,7 @@ type Tenant struct {
 	ResponseScan bool
 	Limit        *Limiter
 	Scope        Scope
+	CrossTurn    bool
 }
 
 type Scope uint8
@@ -88,6 +90,7 @@ type Auditor interface {
 type Options struct {
 	TenantHeader      string
 	SessionHeader     string
+	Vault             *vault.Vault
 	Tracer            trace.Tracer
 	Propagator        propagation.TextMapPropagator
 	DefaultTenant     string
@@ -273,6 +276,7 @@ type exchange struct {
 	route    *Route
 	meta     Meta
 	session  *mask.Session
+	vault    *vault.Scope
 	maskTime time.Duration
 	restTime time.Duration
 	waitTime time.Duration
@@ -356,7 +360,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	if !ok {
 		return
 	}
-	x.session = s.newSession(r, tenant)
+	x.session, x.vault = s.newSession(r, tenant)
 	defer x.session.Release()
 	masked, err := rt.Codec.MaskRequest(make([]byte, 0, len(body)+len(body)/4), body, x.session)
 	x.maskTime = time.Since(x.start)
@@ -389,6 +393,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 		}
 	}
 	x.inDigest = sha256.Sum256(masked)
+	if !observe {
+		s.saveVault(r.Context(), x)
+	}
 	s.forward(w, r, x, masked, observe)
 }
 
@@ -491,7 +498,7 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 			resp.Trailer = http.Header{}
 		}
 		resp.Trailer[HeaderRestored] = nil
-		resp.Body = x.route.Codec.NewStreamBody(src, x.session, StreamOptions{
+		resp.Body = x.route.Codec.NewStreamBody(src, x.restoreSet(), StreamOptions{
 			Restore: opts,
 			Idle:    s.opts.StreamIdleTimeout,
 			OnStall: onStall,
@@ -523,7 +530,7 @@ func (s *Server) modifyResponse(resp *http.Response, x *exchange) error {
 	x.outHash.Write(raw)
 	began := time.Now()
 	defer func() { x.restTime += time.Since(began) }()
-	out, st, err := x.route.Codec.RestoreBody(make([]byte, 0, len(raw)+256), raw, x.session, opts)
+	out, st, err := x.route.Codec.RestoreBody(make([]byte, 0, len(raw)+256), raw, x.restoreSet(), opts)
 	if err != nil {
 		return fmt.Errorf("restore body: %w", err)
 	}
