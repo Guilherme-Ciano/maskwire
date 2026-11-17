@@ -68,6 +68,8 @@ linters:
     - godox
     - dupword
   settings:
+    misspell:
+      ignore-rules: [instituto]
     errcheck:
       check-type-assertions: true
       check-blank: true

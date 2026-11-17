@@ -40,3 +40,14 @@ func BenchmarkDetect(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkDetectNames(b *testing.B) {
+	d := New(Options{Names: true})
+	text := sized(cleanSample+" Escreva para Ana Souza e para o Sr. Fagundes. ", 4<<10)
+	spans := make([]entity.Span, 0, 1024)
+	b.SetBytes(int64(len(text)))
+	b.ReportAllocs()
+	for b.Loop() {
+		spans = d.Detect(spans, text)
+	}
+}

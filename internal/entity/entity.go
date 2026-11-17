@@ -27,6 +27,7 @@ const (
 	IEPPSN
 	UKNINO
 	BRPIS
+	Person
 	typeCount
 )
 
@@ -90,6 +91,8 @@ func (t Type) Label() string {
 		return "NINO"
 	case BRPIS:
 		return "PIS"
+	case Person:
+		return "NAME"
 	case Unknown, typeCount:
 		return unknownName
 	}
@@ -142,6 +145,8 @@ func (t Type) LabelLower() string {
 		return "nino"
 	case BRPIS:
 		return "pis"
+	case Person:
+		return "name"
 	case Unknown, typeCount:
 		return "unknown"
 	}
@@ -204,6 +209,8 @@ func LabelFold(b []byte) (Type, bool) {
 		return UKNINO, true
 	case "PIS":
 		return BRPIS, true
+	case "NAME":
+		return Person, true
 	}
 	return Unknown, false
 }
@@ -258,6 +265,8 @@ func (t Type) String() string {
 		return "UK_NINO"
 	case BRPIS:
 		return "BR_PIS"
+	case Person:
+		return "PERSON"
 	case Unknown, typeCount:
 		return unknownName
 	}
@@ -328,7 +337,7 @@ func Priority(t Type) int {
 		return 3
 	case DESteuerID, IP, IPPrivate:
 		return 2
-	case Phone:
+	case Phone, Person:
 		return 1
 	case Unknown, typeCount:
 		return 0

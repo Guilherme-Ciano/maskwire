@@ -29,6 +29,7 @@ type Options struct {
 	PhoneBudget       int
 	DisablePhone      bool
 	KeepReservedEmail bool
+	Names             bool
 }
 
 type Detector struct {
@@ -36,6 +37,7 @@ type Detector struct {
 	phoneBudget   int
 	phone         bool
 	reservedEmail bool
+	names         *gazetteer
 }
 
 func New(o Options) *Detector {
@@ -44,6 +46,9 @@ func New(o Options) *Detector {
 		phoneBudget:   o.PhoneBudget,
 		phone:         !o.DisablePhone,
 		reservedEmail: !o.KeepReservedEmail,
+	}
+	if o.Names {
+		d.names = newGazetteer()
 	}
 	if len(d.regions) == 0 {
 		d.regions = []string{"BR", "PT", "ES", "DE", "FR", "IT"}
@@ -90,6 +95,9 @@ func (d *Detector) DetectWith(dst []entity.Span, text []byte, st *PhoneState) []
 	s.obfuscatedEmails()
 	s.words()
 	s.flushRun()
+	if d.names != nil {
+		s.names()
+	}
 	*st = s.phoneState
 	return resolve(s.out)
 }
@@ -599,7 +607,7 @@ func idWords(t entity.Type) []string {
 	case entity.BRPIS:
 		return []string{"pis", "pasep", "nis", "nit"}
 	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.ESDNI, entity.ESNIE,
-		entity.ITCF, entity.IBAN:
+		entity.ITCF, entity.IBAN, entity.Person:
 		return nil
 	}
 	return nil
@@ -663,7 +671,7 @@ func (s *scanner) official(t entity.Type, first, last int) bool {
 		return s.sizes(first, last, 4, 4, 4, 4) || s.sizes(first, last, 4, 6, 5) || s.sizes(first, last, 4, 4, 4, 4, 3)
 	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.ESDNI, entity.ESNIE,
 		entity.ITCF, entity.IBAN, entity.NLBSN, entity.PLPESEL, entity.BENN, entity.ATSVNR, entity.SEPNR,
-		entity.FIHETU, entity.IEPPSN, entity.UKNINO, entity.BRPIS:
+		entity.FIHETU, entity.IEPPSN, entity.UKNINO, entity.BRPIS, entity.Person:
 	}
 	return false
 }
@@ -674,7 +682,7 @@ func distinctFormat(t entity.Type) bool {
 		entity.SEPNR, entity.BRPIS:
 		return true
 	case entity.Unknown, entity.Email, entity.Phone, entity.IP, entity.IPPrivate, entity.CPF, entity.CNPJ, entity.PTNIF,
-		entity.ESDNI, entity.ESNIE, entity.DESteuerID, entity.FRNIR, entity.ITCF, entity.IBAN, entity.CreditCard:
+		entity.ESDNI, entity.ESNIE, entity.DESteuerID, entity.FRNIR, entity.ITCF, entity.IBAN, entity.CreditCard, entity.Person:
 		return false
 	}
 	return false
@@ -877,7 +885,7 @@ func baseScore(t entity.Type) float32 {
 	switch t {
 	case entity.Email:
 		return 0.95
-	case entity.Phone:
+	case entity.Phone, entity.Person:
 		return 0.85
 	case entity.IP, entity.IPPrivate:
 		return 0.9

@@ -32,8 +32,8 @@ Measured on one machine (AMD Ryzen 5 4600G, loopback, mock upstream, details in 
 • added latency at 2,000 req/s with a 4 KB prompt: +0.22 ms p50, +0.52 ms p99, zero errors
 • streaming: +0.29 ms to the first byte
 
-What it is not: a GDPR or AI Act compliance product. Pseudonymised data is still personal data, and v0.1 does not
-detect names. The README spells that out.
+What it is not: a GDPR or AI Act compliance product. Pseudonymised data is still personal data, and name detection is
+only an opt-in preview. The README spells that out.
 
 Go, Apache-2.0, single static binary, docker compose demo with no API keys:
 https://github.com/Guilherme-Ciano/maskwire

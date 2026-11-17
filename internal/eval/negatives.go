@@ -105,6 +105,30 @@ func (g *gen) negatives() []func() negative {
 			}
 		},
 		func() negative {
+			return negative{
+				"place or institution containing a first name",
+				g.pick(
+					"São Paulo",
+					"Santa Catarina",
+					"San Francisco",
+					"Vila Isabel",
+					"Porto Alegre",
+					"Rua Augusta",
+					"Avenida Paulista",
+					"Hospital Albert Einstein",
+					"Saint Louis",
+					"Santa Maria",
+					"Rio de Janeiro",
+					"Banco Santander",
+					"Jardim Paulista",
+				),
+			}
+		},
+		func() negative {
+			return negative{"capitalized common words", g.pick("Obrigado pela Atenção", "Segue o Relatório",
+				"Prezado Cliente", "Bom Dia", "Thank You", "Best Regards", "Atenciosamente Equipe", "Nota Fiscal")}
+		},
+		func() negative {
 			return negative{"quantity with unit", strconv.Itoa(1+g.r.IntN(9999)) + g.pick(" kg", " km", " ml", " MB")}
 		},
 	}

@@ -96,6 +96,7 @@ jobs:
           - { pkg: ./internal/restore, fn: FuzzRestoreSplit }
           - { pkg: ./internal/restore, fn: FuzzMatcher }
           - { pkg: ./internal/detect, fn: FuzzDetect }
+          - { pkg: ./internal/detect, fn: FuzzNames }
           - { pkg: ./internal/mask, fn: FuzzMaskRoundTrip }
           - { pkg: ./internal/codec/openai, fn: FuzzMaskRequest }
           - { pkg: ./internal/sse, fn: FuzzReader }

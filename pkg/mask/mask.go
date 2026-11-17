@@ -32,6 +32,7 @@ type Options struct {
 	TokenLength  int
 	MaxEntities  int
 	DisablePhone bool
+	Names        bool
 }
 
 type Masker struct {
@@ -73,7 +74,7 @@ func New(o Options) (*Masker, error) {
 	if o.TokenLength != 0 && (o.TokenLength < token.MinLength || o.TokenLength > token.MaxLength) {
 		return nil, fmt.Errorf("token length must be in %d..%d: %w", token.MinLength, token.MaxLength, errBadOption)
 	}
-	det := detect.New(detect.Options{Regions: o.Regions, DisablePhone: o.DisablePhone})
+	det := detect.New(detect.Options{Regions: o.Regions, DisablePhone: o.DisablePhone, Names: o.Names})
 	return &Masker{
 		eng:    imask.NewEngine(det, o.MaxEntities),
 		tenant: &imask.Tenant{ID: o.Tenant, Key: key, Policy: p, TokenLength: o.TokenLength},

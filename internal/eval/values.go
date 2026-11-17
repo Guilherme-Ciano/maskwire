@@ -368,9 +368,37 @@ func (g *gen) ip() value {
 	}
 }
 
+func surnames() []string {
+	return []string{
+		"Silva", "Souza", "Santos", "Oliveira", "Pereira", "Costa", "Rodrigues", "Almeida", "Nascimento", "Lima",
+		"Araújo", "Fernandes", "Carvalho", "Gomes", "Martins", "Rocha", "Ribeiro", "Alves", "Monteiro", "Mendes",
+		"García", "Martínez", "López", "Sánchez", "Pérez", "Gómez", "Fernández", "Ruiz", "Moreno", "Jiménez",
+		"Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Meyer", "Wagner", "Becker", "Hoffmann", "Koch",
+		"Dubois", "Bernard", "Moreau", "Laurent", "Lefebvre", "Girard", "Rossi", "Russo", "Ferrari", "Esposito",
+		"Bianchi", "Romano", "Colombo", "Ricci", "Marino", "Greco", "Bruno", "Gallo", "Conti", "De Luca",
+		"Vasconcelos", "Magalhães", "Albuquerque", "Figueiredo", "Bittencourt", "Kowalski", "Nowak", "Jansen",
+	}
+}
+
+func (g *gen) person() value {
+	first := g.pick("Ana", "João", "Maria", "Pedro", "Lucas", "Juliana", "Carlos", "Fernanda", "Hans", "Claire",
+		"Giulia", "Pablo", "Sofía", "Matteo", "Camille", "Thomas", "Beatriz", "Rafael", "Laura", "Diego")
+	name := first + " " + g.pick(surnames()...)
+	if g.r.IntN(3) == 0 {
+		name += " " + g.pick(surnames()...)
+	}
+	return value{
+		entity.Person,
+		name,
+		strings.ToLower(name),
+		g.pick("Sr.", "Sra.", "cliente:", "nome:", "Frau", "Mme"),
+		false,
+	}
+}
+
 func (g *gen) values() []func() value {
 	return []func() value{
 		g.cpf, g.cnpj, g.pis, g.nif, g.dni, g.nie, g.steuer, g.nir, g.cf, g.iban, g.card, g.bsn, g.pesel, g.benn,
-		g.svnr, g.pnr, g.hetu, g.ppsn, g.nino, g.email, g.phone, g.ip,
+		g.svnr, g.pnr, g.hetu, g.ppsn, g.nino, g.email, g.phone, g.ip, g.person,
 	}
 }

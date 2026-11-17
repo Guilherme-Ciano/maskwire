@@ -201,7 +201,7 @@ func (sc *scorer) result(docs int) Result {
 
 func Run(seed uint64, docs int, thresholds []float32) []Result {
 	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
-	det := detect.New(detect.Options{})
+	det := detect.New(detect.Options{Names: true})
 	values, negs := g.values(), g.negatives()
 	corpus := make([]doc, docs)
 	for i := range corpus {

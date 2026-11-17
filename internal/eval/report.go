@@ -72,6 +72,10 @@ dates, prices, hashes, version strings and random numbers of ID length.
 - **Leak rate**: planted values not fully covered by any detection, which is what reaches the provider.
 - **Flagged**: hard negatives that any detection overlapped.
 
+Names run with ` + "`detect.names`" + ` on. Planted first names come from the detector's own gazetteer, so PERSON recall
+measures surname, honorific and label handling and false positives, not coverage of rare first names; lowercase
+names (the bare column) are not detected by design.
+
 Limits: the generator and the detector were written by the same author, so formats the generator does not produce
 are not measured, and real text is messier. Some types are detected without a keyword only in their official
 grouping (BSN, PESEL, SVNR, PIS and others, see the README), which is why their bare recall is low by design. Phone numbers

@@ -14,6 +14,10 @@ dates, prices, hashes, version strings and random numbers of ID length.
 - **Leak rate**: planted values not fully covered by any detection, which is what reaches the provider.
 - **Flagged**: hard negatives that any detection overlapped.
 
+Names run with `detect.names` on. Planted first names come from the detector's own gazetteer, so PERSON recall
+measures surname, honorific and label handling and false positives, not coverage of rare first names; lowercase
+names (the bare column) are not detected by design.
+
 Limits: the generator and the detector were written by the same author, so formats the generator does not produce
 are not measured, and real text is messier. Some types are detected without a keyword only in their official
 grouping (BSN, PESEL, SVNR, PIS and others, see the README), which is why their bare recall is low by design. Phone numbers
@@ -27,89 +31,95 @@ identifiers need a keyword or their official grouping.
 | Type | Precision | Recall labelled | Recall formatted | Recall bare | Leak rate |
 |---|---:|---:|---:|---:|---:|
 | `EMAIL` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `PHONE` | 99.7% | 100.0% | 100.0% | 0.0% | 29.6% |
+| `PHONE` | 99.7% | 100.0% | 99.6% | 0.0% | 32.3% |
 | `IP` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `CPF` | 96.2% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `CNPJ` | 100.0% | 100.0% | 100.0% | 99.7% | 0.1% |
-| `PT_NIF` | 80.3% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `ES_DNI` | 99.7% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `CPF` | 96.7% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `CNPJ` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `PT_NIF` | 83.1% | 100.0% | 99.7% | 100.0% | 0.0% |
+| `ES_DNI` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
 | `ES_NIE` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `DE_STEUER_ID` | 98.8% | 100.0% | 98.7% | 99.3% | 0.5% |
-| `FR_NIR` | 100.0% | 99.6% | 100.0% | 100.0% | 0.1% |
+| `DE_STEUER_ID` | 99.0% | 100.0% | 99.3% | 99.3% | 0.2% |
+| `FR_NIR` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
 | `IT_CF` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `IBAN` | 99.9% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `CREDIT_CARD` | 100.0% | 100.0% | 100.0% | 99.7% | 0.1% |
-| `NL_BSN` | 100.0% | 100.0% | 0.7% | 0.3% | 58.8% |
-| `PL_PESEL` | 100.0% | 100.0% | 0.0% | 0.0% | 66.1% |
-| `BE_NN` | 100.0% | 100.0% | 100.0% | 0.0% | 33.7% |
-| `AT_SVNR` | 100.0% | 100.0% | 0.0% | 0.0% | 66.7% |
-| `SE_PNR` | 99.5% | 100.0% | 100.0% | 0.0% | 33.4% |
-| `FI_HETU` | 100.0% | 100.0% | 99.0% | 65.0% | 12.3% |
-| `IE_PPSN` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `IBAN` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `CREDIT_CARD` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `NL_BSN` | 99.3% | 100.0% | 1.3% | 0.7% | 62.7% |
+| `PL_PESEL` | 100.0% | 100.0% | 0.0% | 0.0% | 64.1% |
+| `BE_NN` | 99.8% | 100.0% | 100.0% | 0.0% | 28.6% |
+| `AT_SVNR` | 100.0% | 100.0% | 0.0% | 0.0% | 66.2% |
+| `SE_PNR` | 99.5% | 100.0% | 100.0% | 0.0% | 33.3% |
+| `FI_HETU` | 100.0% | 100.0% | 98.9% | 68.9% | 10.4% |
+| `IE_PPSN` | 99.7% | 100.0% | 100.0% | 100.0% | 0.0% |
 | `UK_NINO` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `BR_PIS` | 100.0% | 100.0% | 100.0% | 0.0% | 33.2% |
+| `BR_PIS` | 100.0% | 100.0% | 100.0% | 0.0% | 35.9% |
+| `PERSON` | 100.0% | 100.0% | 100.0% | 0.0% | 32.6% |
 
 | Hard negative | Flagged |
 |---|---:|
-| CPF with a wrong check digit | 0.1% (1 of 1788) |
-| IBAN with a wrong check digit | 0.0% (0 of 1912) |
-| UUID | 0.1% (1 of 1857) |
-| build number (4 dotted parts) | 0.0% (0 of 1858) |
-| card number failing Luhn | 0.1% (1 of 1918) |
-| date | 0.1% (1 of 1818) |
-| git commit hash | 0.0% (0 of 1808) |
-| order number (5-8 digits) | 0.0% (0 of 1905) |
-| price | 0.0% (0 of 1978) |
-| quantity with unit | 0.0% (0 of 1893) |
-| random 11 digits after a non-ID word | 1.3% (24 of 1854) |
-| random 9 digits after a non-ID word | 8.6% (160 of 1861) |
-| reserved-domain e-mail | 0.0% (0 of 1924) |
-| time | 0.0% (0 of 1886) |
-| unix timestamp | 0.0% (0 of 1872) |
-| version string | 0.0% (0 of 1881) |
+| CPF with a wrong check digit | 0.0% (0 of 1638) |
+| IBAN with a wrong check digit | 0.0% (0 of 1703) |
+| UUID | 0.0% (0 of 1689) |
+| build number (4 dotted parts) | 0.0% (0 of 1639) |
+| capitalized common words | 0.0% (0 of 1673) |
+| card number failing Luhn | 0.0% (0 of 1687) |
+| date | 0.0% (0 of 1672) |
+| git commit hash | 0.0% (0 of 1651) |
+| order number (5-8 digits) | 0.0% (0 of 1717) |
+| place or institution containing a first name | 0.0% (0 of 1609) |
+| price | 0.0% (0 of 1715) |
+| quantity with unit | 0.0% (0 of 1670) |
+| random 11 digits after a non-ID word | 1.6% (26 of 1651) |
+| random 9 digits after a non-ID word | 7.9% (127 of 1614) |
+| reserved-domain e-mail | 0.0% (0 of 1619) |
+| time | 0.0% (0 of 1646) |
+| unix timestamp | 0.0% (0 of 1606) |
+| version string | 0.2% (3 of 1756) |
 
 ## min_score 0.7
 
 | Type | Precision | Recall labelled | Recall formatted | Recall bare | Leak rate |
 |---|---:|---:|---:|---:|---:|
 | `EMAIL` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `PHONE` | 99.7% | 100.0% | 100.0% | 0.0% | 29.6% |
+| `PHONE` | 99.7% | 100.0% | 99.6% | 0.0% | 32.3% |
 | `IP` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `CPF` | 100.0% | 100.0% | 100.0% | 0.0% | 35.6% |
-| `CNPJ` | 100.0% | 100.0% | 100.0% | 0.0% | 32.3% |
-| `PT_NIF` | 94.8% | 100.0% | 0.0% | 0.0% | 66.3% |
-| `ES_DNI` | 99.7% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `CPF` | 100.0% | 100.0% | 100.0% | 0.0% | 32.8% |
+| `CNPJ` | 100.0% | 100.0% | 100.0% | 0.0% | 31.7% |
+| `PT_NIF` | 97.3% | 100.0% | 0.0% | 0.4% | 67.4% |
+| `ES_DNI` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
 | `ES_NIE` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `DE_STEUER_ID` | 100.0% | 100.0% | 98.7% | 0.0% | 32.2% |
-| `FR_NIR` | 100.0% | 99.6% | 100.0% | 0.0% | 32.2% |
+| `DE_STEUER_ID` | 100.0% | 100.0% | 99.3% | 0.0% | 34.9% |
+| `FR_NIR` | 100.0% | 100.0% | 100.0% | 0.0% | 32.5% |
 | `IT_CF` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `IBAN` | 99.9% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `CREDIT_CARD` | 100.0% | 100.0% | 100.0% | 0.0% | 31.9% |
-| `NL_BSN` | 100.0% | 100.0% | 0.7% | 0.3% | 64.3% |
-| `PL_PESEL` | 100.0% | 100.0% | 0.0% | 0.0% | 67.1% |
-| `BE_NN` | 100.0% | 100.0% | 100.0% | 0.0% | 34.1% |
-| `AT_SVNR` | 100.0% | 100.0% | 0.0% | 0.0% | 66.7% |
-| `SE_PNR` | 99.5% | 100.0% | 100.0% | 0.0% | 33.4% |
-| `FI_HETU` | 100.0% | 100.0% | 99.0% | 65.0% | 12.3% |
-| `IE_PPSN` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `IBAN` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
+| `CREDIT_CARD` | 100.0% | 100.0% | 100.0% | 0.0% | 33.5% |
+| `NL_BSN` | 99.3% | 100.0% | 1.3% | 0.7% | 67.6% |
+| `PL_PESEL` | 100.0% | 100.0% | 0.0% | 0.0% | 64.6% |
+| `BE_NN` | 99.8% | 100.0% | 100.0% | 0.0% | 28.9% |
+| `AT_SVNR` | 100.0% | 100.0% | 0.0% | 0.0% | 66.2% |
+| `SE_PNR` | 99.5% | 100.0% | 100.0% | 0.0% | 33.3% |
+| `FI_HETU` | 100.0% | 100.0% | 98.9% | 68.9% | 10.4% |
+| `IE_PPSN` | 99.7% | 100.0% | 100.0% | 100.0% | 0.0% |
 | `UK_NINO` | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% |
-| `BR_PIS` | 100.0% | 100.0% | 100.0% | 0.0% | 34.0% |
+| `BR_PIS` | 100.0% | 100.0% | 100.0% | 0.0% | 36.6% |
+| `PERSON` | 100.0% | 100.0% | 100.0% | 0.0% | 32.6% |
 
 | Hard negative | Flagged |
 |---|---:|
-| CPF with a wrong check digit | 0.1% (1 of 1788) |
-| IBAN with a wrong check digit | 0.0% (0 of 1912) |
-| UUID | 0.1% (1 of 1857) |
-| build number (4 dotted parts) | 0.0% (0 of 1858) |
-| card number failing Luhn | 0.1% (1 of 1918) |
-| date | 0.1% (1 of 1818) |
-| git commit hash | 0.0% (0 of 1808) |
-| order number (5-8 digits) | 0.0% (0 of 1905) |
-| price | 0.0% (0 of 1978) |
-| quantity with unit | 0.0% (0 of 1893) |
-| random 11 digits after a non-ID word | 0.0% (0 of 1854) |
-| random 9 digits after a non-ID word | 0.0% (0 of 1861) |
-| reserved-domain e-mail | 0.0% (0 of 1924) |
-| time | 0.0% (0 of 1886) |
-| unix timestamp | 0.0% (0 of 1872) |
-| version string | 0.0% (0 of 1881) |
+| CPF with a wrong check digit | 0.0% (0 of 1638) |
+| IBAN with a wrong check digit | 0.0% (0 of 1703) |
+| UUID | 0.0% (0 of 1689) |
+| build number (4 dotted parts) | 0.0% (0 of 1639) |
+| capitalized common words | 0.0% (0 of 1673) |
+| card number failing Luhn | 0.0% (0 of 1687) |
+| date | 0.0% (0 of 1672) |
+| git commit hash | 0.0% (0 of 1651) |
+| order number (5-8 digits) | 0.0% (0 of 1717) |
+| place or institution containing a first name | 0.0% (0 of 1609) |
+| price | 0.0% (0 of 1715) |
+| quantity with unit | 0.0% (0 of 1670) |
+| random 11 digits after a non-ID word | 0.0% (0 of 1651) |
+| random 9 digits after a non-ID word | 0.1% (1 of 1614) |
+| reserved-domain e-mail | 0.0% (0 of 1619) |
+| time | 0.0% (0 of 1646) |
+| unix timestamp | 0.0% (0 of 1606) |
+| version string | 0.2% (3 of 1756) |

@@ -36,6 +36,7 @@ everything else needs a restart.
 | `detect.phone_budget` | integer | `64` | libphonenumber validations per request; beyond it, phone-shaped runs are masked unvalidated |
 | `detect.disable_phone` | bool |  | turn phone detection off |
 | `detect.keep_reserved_email` | bool |  | also mask addresses at reserved domains such as `example.com`, which are skipped by default |
+| `detect.names` | bool |  | detect person names (preview): first-name gazetteer plus surnames, honorifics and labels such as `nome:`; see docs/evaluation.md |
 | `detect.max_entities` | integer | `4096` | distinct entities per request before it is rejected with 422 |
 | `log.level` | string | `info` | `debug`, `info`, `warn` or `error` |
 | `log.format` | string | `json` | `json` or `text` |

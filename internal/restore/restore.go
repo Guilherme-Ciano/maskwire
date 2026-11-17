@@ -145,6 +145,8 @@ func aliasType(label []byte) (entity.Type, bool) {
 		return t, true
 	}
 	switch string(buf[:k]) {
+	case "NOME", "NOMBRE", "NOM", "PERSON", "PESSOA":
+		return entity.Person, true
 	case "MAIL", "CORREO", "COURRIEL", "CORREIO":
 		return entity.Email, true
 	case "TEL", "TELEFONE", "TELEFONO", "TELEPHONE", "TELEFON", "FONE", "MOBILE", "CELULAR":

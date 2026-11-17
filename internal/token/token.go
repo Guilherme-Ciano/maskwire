@@ -175,6 +175,23 @@ func foldWide(raw []byte) []byte {
 	return out
 }
 
+func appendPersonCanonical(dst, raw []byte) []byte {
+	start := len(dst)
+	space := false
+	for _, c := range raw {
+		if c == ' ' || c == '\t' || c == '\n' {
+			space = len(dst) > start
+			continue
+		}
+		if space {
+			dst = append(dst, ' ')
+			space = false
+		}
+		dst = append(dst, lower(c))
+	}
+	return dst
+}
+
 func AppendCanonical(dst []byte, t entity.Type, raw []byte) []byte {
 	raw = foldWide(raw)
 	switch t {
@@ -201,6 +218,8 @@ func AppendCanonical(dst []byte, t entity.Type, raw []byte) []byte {
 				dst = append(dst, c)
 			}
 		}
+	case entity.Person:
+		dst = appendPersonCanonical(dst, raw)
 	case entity.Unknown:
 		dst = append(dst, raw...)
 	}

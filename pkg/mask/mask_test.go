@@ -93,3 +93,16 @@ func TestOptionsAndDetect(t *testing.T) {
 		t.Fatalf("detect %v", got)
 	}
 }
+
+func TestNamesOption(t *testing.T) {
+	m := newMasker(t, Options{Names: true})
+	s := m.Session()
+	defer s.Close()
+	out, err := s.Mask("Escreva para Ana Souza.")
+	if err != nil || strings.Contains(out, "Souza") || !strings.Contains(out, "[NAME_") {
+		t.Fatalf("%s %v", out, err)
+	}
+	if got := s.Restore(out); got != "Escreva para Ana Souza." {
+		t.Fatalf("restore %s", got)
+	}
+}
