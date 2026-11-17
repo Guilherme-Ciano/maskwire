@@ -219,26 +219,6 @@ func appendFolded(buf []byte, k int, src []byte) int {
 	return k
 }
 
-func (f *foldTable) skip(t []byte, i int) int {
-	word := -1
-	for ; i < len(t); i++ {
-		switch f.class[t[i]] {
-		case classLower:
-			if word < 0 {
-				word = i
-			}
-		case classPlain:
-			word = -1
-		default:
-			if word >= 0 {
-				return word
-			}
-			return i
-		}
-	}
-	return i
-}
-
 func (s *scanner) words() {
 	t := s.text
 	f := s.d.fold
@@ -566,6 +546,26 @@ type foldTable struct {
 	lower  [256]byte
 	letter [256]bool
 	class  [256]byte
+}
+
+func (f *foldTable) skip(t []byte, i int) int {
+	word := -1
+	for ; i < len(t); i++ {
+		switch f.class[t[i]] {
+		case classLower:
+			if word < 0 {
+				word = i
+			}
+		case classPlain:
+			word = -1
+		default:
+			if word >= 0 {
+				return word
+			}
+			return i
+		}
+	}
+	return i
 }
 
 func newFoldTable() *foldTable {
