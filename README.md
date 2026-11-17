@@ -472,29 +472,32 @@ and re-encoded; events with nothing to restore are forwarded unchanged). A real 
 second, so per-event cost is negligible next to generation time.
 
 **Micro-benchmarks**, one core (`-cpu 1`), 6 runs, benchstat median ± 95% CI
-([raw](bench/results/raw/5f75905.txt), [benchstat against the previous run](bench/results/raw/5f75905-benchstat.txt)).
-Since that run, detection covers 48 types instead of 23 (world IDs, secrets, dates of birth):
+([raw](bench/results/raw/292cd2e.txt), [benchstat against the previous run](bench/results/raw/292cd2e-benchstat.txt)).
+Since that run, detection covers 48 types instead of 23 (world IDs, secrets, dates of birth), and every row is
+still as fast or faster:
 
 | benchmark | result | allocs/op | vs 0b41bb2 |
 |---|---:|---:|---:|
-| Detect, clean text, 4 KB | 9.2 µs, **447 MB/s** ± 1% | **0** | +10% throughput |
-| Detect, clean text, 64 KB | 142 µs, **460 MB/s** ± 4% | 0 | +11% |
-| Detect, dense text (an entity every ~30 bytes), 4 KB | 119 µs, 34 MB/s | 3 | -19%, twice the types checked, -98% allocs |
-| Detect, dense text, 64 KB | 1.9 ms, 34 MB/s | 3 | +3%, -99% allocs |
-| Mask a 4 KB OpenAI request (walk, detect, tokenise) | **29 µs** ± 5% | 18 | -36% time, -73% allocs |
-| Restore a 4 KB OpenAI response | 28 µs ± 1% | 19 | -6% time |
-| Streaming restore, 64-byte chunks | **237 MB/s** ± 1% | 1 per stream | +17% |
-| Streaming restore, 8-byte chunks | 131 MB/s ± 1% | 1 per stream | +11% |
-| JSON splice, 1.6 MB body with nothing to mask | 318 MB/s ± 1% | 0 | ~ |
-| Full proxy round trip in process (`internal/app`) | 259 µs ± 8% | 363 | +9% time, -10% allocs |
+| Detect, clean text, 4 KB | 8.9 µs, **458 MB/s** ± 1% | **0** | +13% throughput |
+| Detect, clean text, 64 KB | 143 µs, 458 MB/s ± 2% | 0 | +11% |
+| Detect, dense text (an entity every ~30 bytes), 4 KB | 78 µs, **53 MB/s** ± 3% | 3 | +25%, -98% allocs |
+| Detect, dense text, 64 KB | 1.24 ms, 53 MB/s ± 1% | 3 | +60%, -99.8% allocs |
+| Mask a 4 KB OpenAI request (walk, detect, tokenise) | **28 µs** ± 2% | 18 | -38% time, -73% allocs |
+| Restore a 4 KB OpenAI response | 29 µs ± 3% | 19 | -4% time |
+| Streaming restore, 64-byte chunks | **234 MB/s** ± 2% | 1 per stream | +16% |
+| Streaming restore, 8-byte chunks | 130 MB/s ± 3% | 1 per stream | +10% |
+| JSON splice, 1.6 MB body with nothing to mask | 312 MB/s ± 2% | 0 | -3% |
+| Full proxy round trip in process (`internal/app`) | **218 µs** ± 7% | 207 | -9% time, -49% allocs |
 
-Phone numbers are validated with libphonenumber once per detector: verdicts are kept in a bounded cache keyed by a
-seeded hash, so no number is stored, and the conversation history a chat client resends every turn costs no
-second parse. A number never seen before still costs about 15 µs to validate.
+Keywords are found with one scan per run of digits over a two-byte bucket index, so checking twice as many types
+made dense text faster, not slower. Phone numbers are validated with libphonenumber once per detector: verdicts
+are kept in a bounded cache keyed by a seeded hash, so no number is stored, and the conversation history a chat
+client resends every turn costs no second parse. A number never seen before still costs about 15 µs to validate.
+A value already masked in the same session reuses its token without a second HMAC.
 
-The detection target was 150 MB/s per core on ordinary text. The restore rows got slower on purpose: the matcher
-now accepts the forms models actually produce (lower case, other brackets, Markdown escapes, missing brackets,
-quoted numbers) and only restores the relaxed forms for suffixes issued in the request.
+The detection target was 150 MB/s per core on ordinary text. Streaming restore accepts the forms models actually
+produce (lower case, other brackets, Markdown escapes, missing brackets, quoted numbers) and only restores the
+relaxed forms for suffixes issued in the request.
 
 Reproduce: `make bench`, then `make build && cd bench && taskset -c 0-3 go run ./cmd/loadgen -rates 500,1000,2000,4000`.
 Full report: [`bench/results/2026-11-16-ryzen-5-0b41bb2/report.md`](bench/results/2026-11-16-ryzen-5-0b41bb2/report.md)
