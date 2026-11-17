@@ -8,3 +8,4 @@ bench/results/profiles/
 bench/results/raw/*.prof
 deploy/secrets/
 .env
+**/testdata/rapid/

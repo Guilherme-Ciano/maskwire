@@ -87,3 +87,13 @@ var specs = [typeCount]spec{
 	Secret:      id("SECRET", "SECRET", "secret", CanonRaw),
 	DateOfBirth: {name: "DOB", label: "DOB", lower: "dob", priority: priorityMedium, canon: CanonDigits},
 }
+
+var labels = func() map[string]Type {
+	m := make(map[string]Type, typeCount)
+	for t := Unknown + 1; t < typeCount; t++ {
+		if t != IPPrivate {
+			m[specs[t].label] = t
+		}
+	}
+	return m
+}()

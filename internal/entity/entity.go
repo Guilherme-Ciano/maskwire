@@ -91,12 +91,8 @@ func LabelFold(b []byte) (Type, bool) {
 		}
 		up[i] = c
 	}
-	for t := Unknown + 1; t < typeCount; t++ {
-		if t != IPPrivate && specs[t].label == string(up[:len(b)]) {
-			return t, true
-		}
-	}
-	return Unknown, false
+	t, ok := labels[string(up[:len(b)])]
+	return t, ok
 }
 
 const Count = int(typeCount)

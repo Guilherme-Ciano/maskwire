@@ -396,6 +396,52 @@ func (x *matcher) done(r result) match {
 	return x.m
 }
 
+func crockford(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z' && c != 'I' && c != 'L' && c != 'O' && c != 'U')
+}
+
+func canonicalToken(b []byte, final bool) (match, bool) {
+	var m match
+	partial := func() (match, bool) {
+		if final {
+			return m, false
+		}
+		m.res = partial
+		return m, true
+	}
+	if len(b) == 0 || b[0] != '[' {
+		return m, false
+	}
+	i := 1
+	for i < len(b) && i <= entity.MaxLabelLen && b[i] >= 'A' && b[i] <= 'Z' {
+		i++
+	}
+	if i == len(b) && i <= entity.MaxLabelLen {
+		return partial()
+	}
+	if i == 1 || i >= len(b) || b[i] != '_' {
+		return m, false
+	}
+	t, known := entity.LabelFold(b[1:i])
+	if !known {
+		return m, false
+	}
+	i++
+	start := i
+	for i < len(b) && i-start < token.MaxLength && crockford(b[i]) {
+		i++
+	}
+	if i == len(b) && i-start < token.MaxLength {
+		return partial()
+	}
+	n := i - start
+	if n < minSuffix || i >= len(b) || b[i] != ']' {
+		return m, false
+	}
+	m.res, m.n, m.typ, m.canonical, m.slen = full, i+1, t, true, copy(m.suffix[:], b[start:i])
+	return m, true
+}
+
 func matchToken(b []byte, prev byte, json, eof bool) match {
 	x := matcher{b: b, prev: prev, json: json, eof: eof}
 	if r := x.opening(); r != full {
@@ -435,17 +481,18 @@ func matchToken(b []byte, prev byte, json, eof bool) match {
 }
 
 type Stream struct {
-	set     Set
-	opts    Options
-	pending [MaxTokenLen]byte
-	held    int
-	prev    byte
-	key     [token.MaxLength]byte
-	stats   Stats
+	set      Set
+	opts     Options
+	pending  [MaxTokenLen]byte
+	held     int
+	prev     byte
+	key      [token.MaxLength]byte
+	stats    Stats
+	triggers triggers
 }
 
 func NewStream(set Set, o Options) Stream {
-	return Stream{set: set, opts: o}
+	return Stream{set: set, opts: o, triggers: newTriggers(o.Encoding == JSONString)}
 }
 
 func (s *Stream) Held() int {
@@ -456,23 +503,24 @@ func (s *Stream) Stats() *Stats {
 	return &s.stats
 }
 
-func (s *Stream) trigger(c byte) bool {
-	if c == '"' {
-		return s.opts.Encoding == JSONString
+type triggers [256]bool
+
+func newTriggers(json bool) triggers {
+	var t triggers
+	for _, c := range []byte{'[', '<', '(', '{', '%', '\\', 0xE3} {
+		t[c] = true
 	}
-	switch c {
-	case '[', '<', '(', '{', '%', '\\', 0xE3:
-		return true
+	for c := 'A'; c <= 'Z'; c++ {
+		t[c] = true
 	}
-	return c >= 'A' && c <= 'Z'
+	t['"'] = json
+	return t
 }
 
 func (s *Stream) nextTrigger(b []byte) int {
+	t := &s.triggers
 	for k, c := range b {
-		if c >= 'a' && c <= 'z' {
-			continue
-		}
-		if s.trigger(c) {
+		if t[c] {
 			return k
 		}
 	}
@@ -525,7 +573,10 @@ func (s *Stream) process(dst, b []byte, limit int, final bool, prev byte) (out [
 			}
 			continue
 		}
-		m := matchToken(b[j:], before(b, j, prev), s.opts.Encoding == JSONString, final)
+		m, fast := canonicalToken(b[j:], final)
+		if !fast {
+			m = matchToken(b[j:], before(b, j, prev), s.opts.Encoding == JSONString, final)
+		}
 		switch m.res {
 		case full:
 			if out, ok := s.resolve(dst, b[j:j+m.n], &m); ok {
