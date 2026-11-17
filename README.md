@@ -184,6 +184,11 @@ make demo
 | grafana | 3000 (`GRAFANA_PORT`) | provisioned maskwire dashboard, anonymous read-only |
 | jaeger (profile `tracing`) | 16686 (`JAEGER_PORT`) | traces, when `MASKWIRE_TRACING_ENDPOINT=http://jaeger:4318` is set |
 
+![make demo: values masked before the upstream, restored for the client, and the foreign-token guard in action](docs/img/demo.svg)
+
+The animation is rendered from the captured output in [`docs/demo-output.txt`](docs/demo-output.txt) by
+`go run ./internal/tools/democast`, which also writes an asciinema recording, [`docs/demo.cast`](docs/demo.cast).
+
 `make demo` runs six scenarios: a JSON request through the cache (MISS), the same prompt as a stream (cache HIT,
 replayed as SSE), a different customer with the same wording (the foreign-token guard), a direct streaming route,
 Anthropic streaming with a thinking block, and a blocked card number.
