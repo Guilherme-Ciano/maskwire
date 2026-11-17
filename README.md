@@ -475,28 +475,34 @@ and re-encoded; events with nothing to restore are forwarded unchanged). A real 
 second, so per-event cost is negligible next to generation time.
 
 **Micro-benchmarks**, one core (`-cpu 1`), 6 runs, benchstat median ± 95% CI
-([raw](bench/results/raw/292cd2e.txt), [benchstat against the previous run](bench/results/raw/292cd2e-benchstat.txt)).
-Since that run, detection covers 48 types instead of 23 (world IDs, secrets, dates of birth), and every row is
-still as fast or faster:
+([raw](bench/results/raw/a0f2eea.txt), [benchstat against the previous run](bench/results/raw/a0f2eea-benchstat.txt)).
+Since that run, detection covers 48 types instead of 23 (world IDs, secrets, dates of birth), and every row but one
+is faster:
 
 | benchmark | result | allocs/op | vs 0b41bb2 |
 |---|---:|---:|---:|
-| Detect, clean text, 4 KB | 8.9 µs, **458 MB/s** ± 1% | **0** | +13% throughput |
-| Detect, clean text, 64 KB | 143 µs, 458 MB/s ± 2% | 0 | +11% |
-| Detect, dense text (an entity every ~30 bytes), 4 KB | 78 µs, **53 MB/s** ± 3% | 3 | +25%, -98% allocs |
-| Detect, dense text, 64 KB | 1.24 ms, 53 MB/s ± 1% | 3 | +60%, -99.8% allocs |
-| Mask a 4 KB OpenAI request (walk, detect, tokenise) | **28 µs** ± 2% | 18 | -38% time, -73% allocs |
-| Restore a 4 KB OpenAI response | 29 µs ± 3% | 19 | -4% time |
-| Streaming restore, 64-byte chunks | **234 MB/s** ± 2% | 1 per stream | +16% |
-| Streaming restore, 8-byte chunks | 130 MB/s ± 3% | 1 per stream | +10% |
-| JSON splice, 1.6 MB body with nothing to mask | 312 MB/s ± 2% | 0 | -3% |
-| Full proxy round trip in process (`internal/app`) | **218 µs** ± 7% | 207 | -9% time, -49% allocs |
+| Detect, clean text, 4 KB | 4.3 µs, **955 MB/s** ± 6% | **0** | +135% throughput |
+| Detect, clean text, 64 KB | 65 µs, **1.01 GB/s** ± 3% | 0 | +145% |
+| Detect, dense text (an entity every ~30 bytes), 4 KB | 79 µs, 52 MB/s | 3 | +24%, -98% allocs |
+| Detect, dense text, 64 KB | 1.26 ms, 52 MB/s ± 1% | 3 | +57%, -99.8% allocs |
+| Mask a 4 KB OpenAI request (walk, detect, tokenise) | **23 µs** ± 3% | 18 | -48% time, -73% allocs |
+| Restore a 4 KB OpenAI response | 29 µs ± 6% | 19 | ~ |
+| Restore an OpenAI SSE stream, ~1,000 events | 1.37 ms ± 2% | **53 per stream** | -58% time, -99.6% allocs |
+| Restore an Anthropic SSE stream, ~600 events | 0.76 ms ± 1% | 49 per stream | new (was 1.42 ms, 3,688 allocs) |
+| Streaming restore, 64-byte chunks | **267 MB/s** ± 4% | 1 per stream | +39% |
+| Streaming restore, 8-byte chunks | 143 MB/s ± 1% | 1 per stream | +21% |
+| JSON splice, 1.6 MB body with nothing to mask | 313 MB/s ± 1% | 0 | -2% |
+| Full proxy round trip in process (`internal/app`) | **214 µs** ± 7% | 202 | -10% time, -50% allocs, -39% bytes |
+| Full proxy round trip, 6 MB request | 40 ms ± 4% (152 MB/s) | pooled | new |
 
-Keywords are found with one scan per run of digits over a two-byte bucket index, so checking twice as many types
-made dense text faster, not slower. Phone numbers are validated with libphonenumber once per detector: verdicts
-are kept in a bounded cache keyed by a seeded hash, so no number is stored, and the conversation history a chat
-client resends every turn costs no second parse. A number never seen before still costs about 15 µs to validate.
-A value already masked in the same session reuses its token without a second HMAC.
+How: plain prose is scanned eight bytes at a time with exact SWAR byte classes, so detection only stops where an
+identifier, a keyword or a secret can start; keywords are found with one scan per run of digits over a two-byte
+bucket index; SSE chunks are parsed in place and restored text is spliced into the original bytes instead of
+decoding and re-encoding every event; request bodies and proxy copy buffers come from pools and are zeroed on
+release. Every fast path has a property test that compares it with the exhaustive path on thousands of random
+inputs. Phone numbers are validated with libphonenumber once per detector: verdicts are kept in a bounded cache
+keyed by a seeded hash, so no number is stored, and the conversation history a chat client resends every turn costs
+no second parse. A value already masked in the same session reuses its token without a second HMAC.
 
 The detection target was 150 MB/s per core on ordinary text. Streaming restore accepts the forms models actually
 produce (lower case, other brackets, Markdown escapes, missing brackets, quoted numbers) and only restores the
