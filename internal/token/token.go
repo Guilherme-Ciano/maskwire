@@ -194,33 +194,27 @@ func appendPersonCanonical(dst, raw []byte) []byte {
 
 func AppendCanonical(dst []byte, t entity.Type, raw []byte) []byte {
 	raw = foldWide(raw)
-	switch t {
-	case entity.Email:
+	switch t.Canon() {
+	case entity.CanonLower:
 		for _, c := range raw {
 			dst = append(dst, lower(c))
 		}
-	case entity.IP, entity.IPPrivate:
-		for _, c := range raw {
-			dst = append(dst, lower(c))
-		}
-	case entity.Phone, entity.CPF, entity.PTNIF, entity.DESteuerID, entity.CreditCard, entity.NLBSN, entity.PLPESEL,
-		entity.BENN, entity.ATSVNR, entity.SEPNR, entity.BRPIS:
+	case entity.CanonDigits:
 		for _, c := range raw {
 			if isDigit(c) {
 				dst = append(dst, c)
 			}
 		}
-	case entity.CNPJ, entity.ESDNI, entity.ESNIE, entity.FRNIR, entity.ITCF, entity.IBAN, entity.FIHETU,
-		entity.IEPPSN, entity.UKNINO:
+	case entity.CanonUpperAlnum:
 		for _, c := range raw {
 			c = upper(c)
 			if isDigit(c) || (c >= 'A' && c <= 'Z') {
 				dst = append(dst, c)
 			}
 		}
-	case entity.Person:
+	case entity.CanonPerson:
 		dst = appendPersonCanonical(dst, raw)
-	case entity.Unknown:
+	case entity.CanonRaw:
 		dst = append(dst, raw...)
 	}
 	return dst

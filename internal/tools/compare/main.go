@@ -50,6 +50,20 @@ func mapType(t string) string {
 		return "FI_HETU"
 	case "UK_NINO":
 		return "UK_NINO"
+	case "US_SSN":
+		return "US_SSN"
+	case "US_ITIN":
+		return "US_ITIN"
+	case "IN_PAN":
+		return "IN_PAN"
+	case "IN_AADHAAR":
+		return "IN_AADHAAR"
+	case "AU_TFN":
+		return "AU_TFN"
+	case "AU_ABN":
+		return "AU_ABN"
+	case "SG_NRIC_FIN":
+		return "SG_NRIC"
 	}
 	return "OTHER:" + t
 }

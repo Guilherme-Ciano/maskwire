@@ -303,7 +303,25 @@ Entity types for `by_type`: `PERSON` (with `detect.names: true`; tokens look lik
 `DE_STEUER_ID` (scores 0.5 without a keyword such as "Steuer-ID"), `FR_NIR`, `IT_CF`, `IBAN`, `CREDIT_CARD`,
 `FI_HETU`, `IE_PPSN`, `UK_NINO`, `SE_PNR` (detected from their format), and `NL_BSN`, `PL_PESEL`, `BE_NN`,
 `AT_SVNR`, `BR_PIS`, which are plain digit runs and so need their keyword nearby (`BSN`, `PESEL`, `rijksregister`,
-`SVNR`, `PIS`) or their official grouping, to keep random numbers from being masked. Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
+`SVNR`, `PIS`) or their official grouping, to keep random numbers from being masked.
+
+Outside Europe and Brazil, every identifier is validated by its official check digit or structure:
+
+| Region | Types | Detected |
+|---|---|---|
+| United States | `US_SSN`, `US_ITIN` | from `123-45-6789` grouping or a keyword |
+| | `US_EIN`, `US_ABA` (routing numbers) | with a keyword (`EIN`, `routing`, `ABA`) |
+| Latin America | `MX_CURP`, `MX_RFC` | from their format, as one token |
+| | `AR_CUIT`, `CL_RUT`, `CO_NIT`, `UY_CI` | from their official grouping or a keyword |
+| | `PE_RUC` | with a keyword |
+| Asia-Pacific | `IN_AADHAAR` (Verhoeff), `AU_ABN`, `KR_RRN` | from their official grouping or a keyword |
+| | `IN_PAN`, `CN_RIC`, `SG_NRIC` | from their format |
+| | `AU_TFN`, `NZ_IRD`, `JP_MYNUMBER` | with a keyword |
+| Africa and Middle East | `ZA_ID`, `IL_ID`, `TR_TCKN` | with a keyword |
+
+Keywords of four letters or fewer must stand alone, so "EIN" never matches inside "Einstein". A layout match has to
+cover the whole run of digit groups, so the first 12 digits of a card number are never read as an Aadhaar.
+Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
 lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
 types return `422` with `{"error":{"type":"pii_blocked","entities":[...]}}`.
 

@@ -132,6 +132,8 @@ linters:
     rules:
       - path: _test\.go
         linters: [gochecknoglobals, wrapcheck, forcetypeassert, gosec, goconst, gocognit]
+      - path: internal/entity/specs\.go
+        linters: [gochecknoglobals]
       - path: internal/tools/
         linters: [gosec]
         text: G703

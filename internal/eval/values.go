@@ -402,3 +402,7 @@ func (g *gen) values() []func() value {
 		g.svnr, g.pnr, g.hetu, g.ppsn, g.nino, g.email, g.phone, g.ip, g.person,
 	}
 }
+
+func (g *gen) allValues() []func() value {
+	return append(g.values(), g.worldValues()...)
+}

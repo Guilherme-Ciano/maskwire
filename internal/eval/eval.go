@@ -201,7 +201,7 @@ func (sc *scorer) result(docs int) Result {
 
 func corpus(seed uint64, docs int) []doc {
 	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
-	values, negs := g.values(), g.negatives()
+	values, negs := g.allValues(), g.negatives()
 	out := make([]doc, docs)
 	for i := range out {
 		out[i] = g.doc(values, negs)
