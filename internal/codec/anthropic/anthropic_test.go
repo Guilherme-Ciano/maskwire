@@ -16,15 +16,15 @@ import (
 	"github.com/Guilherme-Ciano/maskwire/internal/token"
 )
 
-func session(t *testing.T) *mask.Session {
-	t.Helper()
+func session(tb testing.TB) *mask.Session {
+	tb.Helper()
 	kr, err := token.NewKeyring(bytes.Repeat([]byte{3}, 32), 1)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	tk, err := kr.Tenant("acme")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return mask.NewEngine(detect.New(detect.Options{}), 0).NewSession(
 		&mask.Tenant{ID: "acme", Key: tk, Policy: policy.New(policy.Enforce, policy.Mask)})
@@ -91,11 +91,11 @@ func TestStopSequencesAndSchemaTextMasked(t *testing.T) {
 	}
 }
 
-func masked(t *testing.T, s *mask.Session, text string) string {
-	t.Helper()
+func masked(tb testing.TB, s *mask.Session, text string) string {
+	tb.Helper()
 	out, err := s.MaskText(nil, []byte(text))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return string(out)
 }

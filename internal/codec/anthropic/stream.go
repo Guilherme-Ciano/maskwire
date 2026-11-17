@@ -62,6 +62,9 @@ type StreamBody struct {
 	dropped  int
 	onClose  func(restore.Stats, int, int)
 	retired  restore.Stats
+	parser   *deltaParser
+	plain    []byte
+	enc      []byte
 }
 
 func NewStreamBody(src io.ReadCloser, set restore.Set, o codec.StreamOptions) *StreamBody {
@@ -73,6 +76,7 @@ func NewStreamBody(src io.ReadCloser, set restore.Set, o codec.StreamOptions) *S
 		opts:    o.Restore,
 		idle:    idle,
 		onClose: o.OnClose,
+		parser:  newDeltaParser(),
 	}
 }
 
@@ -142,6 +146,10 @@ func (b *StreamBody) step() {
 		b.out = sse.AppendEvent(b.out, ev)
 		return
 	}
+	if b.parser != nil && b.parser.parse(ev.Data) {
+		b.forwardFast(&ev)
+		return
+	}
 	var env envelope
 	if err := json.Unmarshal(ev.Data, &env); err != nil {
 		b.out = sse.AppendEvent(b.out, ev)
@@ -157,6 +165,22 @@ func (b *StreamBody) step() {
 		return
 	}
 	b.out = sse.AppendEvent(b.out, ev)
+}
+
+func (b *StreamBody) forwardFast(ev *sse.Event) {
+	data, keep, err := b.fastDelta(ev.Data, &b.parser.d)
+	if err != nil {
+		b.finish(err)
+		return
+	}
+	if !keep {
+		b.dropped++
+		return
+	}
+	if data != nil {
+		ev.Data = data
+	}
+	b.out = sse.AppendEvent(b.out, *ev)
 }
 
 func (b *StreamBody) dispatch(ev *sse.Event, env *envelope) (forward bool, err error) {
