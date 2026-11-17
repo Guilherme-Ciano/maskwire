@@ -309,7 +309,11 @@ func (s *scanner) punctSecret(i int) int {
 	if q == i || !s.d.secrets.first[s.text[q]] {
 		return -1
 	}
-	return s.emitSecret(s.secretAt(q))
+	start, end := s.secretAt(q)
+	if end <= i {
+		return -1
+	}
+	return s.emitSecret(start, end)
 }
 
 func (s *scanner) lowerWord(i int) int {

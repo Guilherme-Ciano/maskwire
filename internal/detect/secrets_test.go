@@ -58,3 +58,19 @@ func TestSecrets(t *testing.T) {
 		t.Errorf("secrets detected while disabled: %q", got)
 	}
 }
+
+func TestSecretBeforeDashTerminates(t *testing.T) {
+	t.Parallel()
+	d := New(Options{})
+	for _, text := range []string{
+		"key AKIAIOSFODNN7EXAMPLE- end",
+		"AKIAIOSFODNN7EXAMPLE-",
+		"ghp_abcdefghijklmnopqrstuvwxyz0123456789-x",
+		"token npm_abcdefghijklmnopqrstuvwxyz0123456789--",
+	} {
+		spans := d.Detect(nil, []byte(text))
+		if len(spans) != 1 || spans[0].Type != entity.Secret {
+			t.Errorf("%q: %+v", text, spans)
+		}
+	}
+}
