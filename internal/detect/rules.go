@@ -177,6 +177,7 @@ type rule struct {
 	loose    bool
 	single   bool
 	keys     [][]byte
+	kmask    uint32
 }
 
 func span(lo, hi int) []int {
@@ -433,6 +434,7 @@ func newRuleIndex() *ruleIndex {
 	for i := range rs {
 		r := &rs[i]
 		r.keys = toBytes(r.words)
+		r.kmask = startMask(r.keys)
 		if ix.byType[r.typ] == nil {
 			ix.byType[r.typ] = r
 		}
@@ -490,7 +492,7 @@ func (c *classifier) ok(k int) bool {
 
 func (c *classifier) byKeyword() entity.Type {
 	for k, r := range c.rs {
-		if r.keys != nil && c.ok(k) && c.s.lazy(c.ctx).has(true, r.keys) {
+		if r.keys != nil && c.ok(k) && c.s.lazy(c.ctx).may(r.kmask) && c.ctx.has(true, r.keys) {
 			return r.typ
 		}
 	}

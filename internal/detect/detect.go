@@ -43,6 +43,7 @@ type Detector struct {
 	rules         *ruleIndex
 	phoneWords    [][]byte
 	secrets       *secretIndex
+	fold          *foldTable
 }
 
 func New(o Options) *Detector {
@@ -53,6 +54,7 @@ func New(o Options) *Detector {
 		reservedEmail: !o.KeepReservedEmail,
 	}
 	d.rules = newRuleIndex()
+	d.fold = newFoldTable()
 	d.phoneWords = toBytes(phoneWords())
 	if !o.DisableSecrets {
 		d.secrets = newSecretIndex()
@@ -507,25 +509,81 @@ func letterByte(c byte) bool {
 }
 
 type lowered struct {
-	buf  [keywordWindow]byte
-	n    int
-	pos  int
-	done bool
+	buf    [keywordWindow]byte
+	n      int
+	pos    int
+	starts uint32
+	done   bool
+}
+
+type foldTable struct {
+	lower  [256]byte
+	start  [256]uint32
+	letter [256]bool
+}
+
+func newFoldTable() *foldTable {
+	f := &foldTable{}
+	for i := range 256 {
+		c := byte(i)
+		f.lower[i] = c
+		if isUpper(c) {
+			f.lower[i] = c + 'a' - 'A'
+		}
+		f.start[i] = startBit(c)
+		f.letter[i] = letterByte(c)
+	}
+	return f
+}
+
+func startBit(c byte) uint32 {
+	switch {
+	case isLower(c):
+		return 1 << (c - 'a')
+	case isUpper(c):
+		return 1 << (c - 'A')
+	case c >= 0x80:
+		return 1 << 26
+	}
+	return 1 << 27
+}
+
+func startMask(words [][]byte) uint32 {
+	var m uint32
+	for _, w := range words {
+		m |= startBit(w[0])
+	}
+	return m
+}
+
+func (l *lowered) may(mask uint32) bool {
+	return l.starts&mask != 0
 }
 
 func (s *scanner) lower(pos int) lowered {
 	var l lowered
+	f := s.d.fold
 	from := max(pos-keywordWindow, 0)
 	if room := keywordWindow - (pos - from); room > 0 && s.hintLen > 0 {
 		l.n = copy(l.buf[:], s.hint[max(s.hintLen-room, 0):s.hintLen])
 	}
-	for _, c := range s.text[from:pos] {
-		if isUpper(c) {
-			c += 'a' - 'A'
+	letter := false
+	for _, c := range l.buf[:l.n] {
+		if !letter {
+			l.starts |= f.start[c]
 		}
-		l.buf[l.n] = c
-		l.n++
+		letter = f.letter[c]
 	}
+	n := l.n
+	for _, c := range s.text[from:pos] {
+		if !letter {
+			l.starts |= f.start[c]
+		}
+		letter = f.letter[c]
+		l.buf[n] = f.lower[c]
+		n++
+	}
+	l.n = n
 	return l
 }
 
