@@ -2,6 +2,8 @@ package detect
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math/bits"
 	"net/netip"
 	"slices"
 
@@ -43,6 +45,7 @@ type Detector struct {
 	rules         *ruleIndex
 	keys          *keyIndex
 	regionPool    regionPool
+	exhaustive    bool
 	secrets       *secretIndex
 	fold          *foldTable
 	phoneCache    *phoneCache
@@ -223,8 +226,8 @@ func (s *scanner) words() {
 	t := s.text
 	f := s.d.fold
 	for i := 0; i < len(t); {
-		if s.ng == 0 {
-			if i = f.skip(t, i); i >= len(t) {
+		if s.ng == 0 && !s.d.exhaustive {
+			if i = f.skip(t, i, s.secretFirst()); i >= len(t) {
 				return
 			}
 		}
@@ -245,6 +248,13 @@ func (s *scanner) words() {
 		}
 		i = s.token(i)
 	}
+}
+
+func (s *scanner) secretFirst() *[256]bool {
+	if s.d.secrets == nil {
+		return nil
+	}
+	return &s.d.secrets.first
 }
 
 func (s *scanner) punct(i int) int {
@@ -544,6 +554,7 @@ const (
 	classStop byte = iota
 	classLower
 	classPlain
+	classUpper
 )
 
 type foldTable struct {
@@ -552,24 +563,117 @@ type foldTable struct {
 	class  [256]byte
 }
 
-func (f *foldTable) skip(t []byte, i int) int {
+const (
+	lanes = 0x0101010101010101
+	highs = 0x8080808080808080
+	lows  = 0x7f7f7f7f7f7f7f7f
+)
+
+func lowerOrSpace(x uint64) (plain, spaces uint64) {
+	ascii := ^x & highs
+	lower := (x + 0x1f*lanes) &^ (x + 0x05*lanes) & ascii
+	y := x ^ ' '*lanes
+	spaces = ^((y&lows + lows) | y | lows)
+	return lower | spaces, spaces
+}
+
+func advanceWord(word, i, n int, spaces uint64) int {
+	if spaces == 0 {
+		if word < 0 && n > 0 {
+			return i
+		}
+		return word
+	}
+	last := (63 - bits.LeadingZeros64(spaces)) / 8
+	if last == n-1 {
+		return -1
+	}
+	return i + last + 1
+}
+
+func (f *foldTable) skip(t []byte, i int, secret *[256]bool) int {
 	word := -1
-	for ; i < len(t); i++ {
-		switch f.class[t[i]] {
-		case classLower:
-			if word < 0 {
-				word = i
+	for i < len(t) {
+		if i+8 <= len(t) {
+			plain, spaces := lowerOrSpace(binary.LittleEndian.Uint64(t[i:]))
+			stop := ^plain & highs
+			if stop == 0 {
+				word = advanceWord(word, i, 8, spaces)
+				i += 8
+				continue
 			}
-		case classPlain:
+			n := bits.TrailingZeros64(stop) / 8
+			word = advanceWord(word, i, n, spaces&(1<<(8*uint(n))-1))
+			i += n
+		}
+		if i < len(t) && f.class[t[i]] == classPlain {
 			word = -1
-		default:
-			if word >= 0 {
-				return word
-			}
+			i++
+			continue
+		}
+		var done bool
+		if i, word, done = f.step(t, i, word, secret); done {
 			return i
 		}
 	}
 	return i
+}
+
+func (f *foldTable) step(t []byte, i, word int, secret *[256]bool) (next, w int, done bool) {
+	switch f.class[t[i]] {
+	case classLower:
+		if word < 0 {
+			word = i
+		}
+	case classPlain:
+		word = -1
+	case classUpper:
+		if word >= 0 {
+			return word, word, true
+		}
+		j, stop := f.passTitle(t, i, secret)
+		return j, -1, stop
+	default:
+		if word >= 0 {
+			return word, word, true
+		}
+		return i, word, true
+	}
+	return i + 1, word, false
+}
+
+func (f *foldTable) passTitle(t []byte, i int, secret *[256]bool) (int, bool) {
+	j := f.titleWord(t, i, secret)
+	if j < 0 {
+		return i, true
+	}
+	return j, j < len(t) && f.class[t[j]] != classPlain
+}
+
+func (f *foldTable) titleWord(t []byte, i int, secret *[256]bool) int {
+	if secret != nil && secret[t[i]] {
+		return -1
+	}
+	j := i + 1
+	lowers := 0
+	for j < len(t) {
+		switch f.class[t[j]] {
+		case classLower:
+			lowers++
+		case classUpper:
+		default:
+			c := t[j]
+			if lowers == 0 || c >= 0x80 || isDigit(c) || c == '_' {
+				return -1
+			}
+			return j
+		}
+		j++
+	}
+	if lowers == 0 {
+		return -1
+	}
+	return j
 }
 
 func newFoldTable() *foldTable {
@@ -584,6 +688,8 @@ func newFoldTable() *foldTable {
 		switch {
 		case isLower(c):
 			f.class[i] = classLower
+		case isUpper(c):
+			f.class[i] = classUpper
 		case c < 0x80 && !isAlnum(c) && c != '_' && c != ':' && c != '=' && c != '-':
 			f.class[i] = classPlain
 		}
