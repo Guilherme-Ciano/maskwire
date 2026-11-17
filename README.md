@@ -319,6 +319,9 @@ Outside Europe and Brazil, every identifier is validated by its official check d
 | | `AU_TFN`, `NZ_IRD`, `JP_MYNUMBER` | with a keyword |
 | Africa and Middle East | `ZA_ID`, `IL_ID`, `TR_TCKN` | with a keyword |
 
+Dates of birth (`DOB`) are masked only next to a birth keyword ("data de nascimento", "DOB", "born",
+"geboren", "né le", "nato il" and others): every other date in the text is left untouched.
+
 Credentials are masked too (`SECRET`): AWS access keys, Google API keys, GitHub, GitLab, Stripe, OpenAI,
 Anthropic, Slack, npm and Hugging Face tokens by their documented prefixes, JWTs, PEM private-key blocks, and
 values assigned to `password`, `api_key`, `token` and similar when they look machine-generated, so "password:

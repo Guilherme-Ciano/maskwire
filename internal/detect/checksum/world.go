@@ -414,3 +414,23 @@ func TRTCKN(b []byte) bool {
 	}
 	return (odd+even+digit(b[9]))%10 == digit(b[10])
 }
+
+func validYear(y int) bool {
+	return y >= 1900 && y <= 2099
+}
+
+func Date(b []byte) bool {
+	if !allDigits(b) {
+		return false
+	}
+	switch len(b) {
+	case 6:
+		return validDate(two(b[:2]), two(b[2:4]))
+	case 8:
+		if validYear(number(b[4:])) && validDate(two(b[:2]), two(b[2:4])) {
+			return true
+		}
+		return validYear(number(b[:4])) && validDate(two(b[6:]), two(b[4:6]))
+	}
+	return false
+}

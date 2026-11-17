@@ -77,3 +77,31 @@ func TestWorldIDsNeedContext(t *testing.T) {
 		}
 	}
 }
+
+func TestDateOfBirth(t *testing.T) {
+	t.Parallel()
+	d := New(Options{})
+	for in, want := range map[string]string{
+		"data de nascimento: 15/03/1985 ok": "15/03/1985",
+		"DOB 1985-03-15 on file":            "1985-03-15",
+		"geboren am 15.03.1985 in Köln":     "15.03.1985",
+		"né le 15/03/85 à Lyon":             "15/03/85",
+	} {
+		got := ""
+		for _, sp := range d.Detect(nil, []byte(in)) {
+			if sp.Type == entity.DateOfBirth {
+				got = in[sp.Start:sp.End]
+			}
+		}
+		if got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+	for _, in := range []string{"delivered on 15/03/1985", "meeting 2026-11-17 at noon", "born 32/13/1985"} {
+		for _, sp := range d.Detect(nil, []byte(in)) {
+			if sp.Type == entity.DateOfBirth {
+				t.Errorf("%q: unexpected DOB %q", in, in[sp.Start:sp.End])
+			}
+		}
+	}
+}

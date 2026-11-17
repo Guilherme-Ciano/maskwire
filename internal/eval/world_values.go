@@ -149,9 +149,18 @@ func (g *gen) secret() value {
 	return value{entity.Secret, c, c, g.pick("api key", "token", "credentials"), false}
 }
 
+func (g *gen) dob() value {
+	dd, mm, _ := g.date()
+	yyyy := g.pick("19", "20") + g.digits(2)
+	return value{
+		entity.DateOfBirth, dd + "/" + mm + "/" + yyyy, dd + mm + yyyy,
+		g.pick("data de nascimento:", "DOB", "born", "geboren am", "fecha de nacimiento"), true,
+	}
+}
+
 func (g *gen) worldValues() []func() value {
 	return []func() value{
-		g.secret,
+		g.secret, g.dob,
 		g.ssn, g.itin, g.ein, g.aba, g.curp, g.rfc, g.cuit, g.rut, g.nit, g.ruc, g.uyci, g.aadhaar, g.pan, g.tfn,
 		g.abn, g.ird, g.mynumber, g.rrn, g.cnric, g.nric, g.zaid, g.ilid, g.tckn,
 	}

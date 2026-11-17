@@ -25,6 +25,7 @@ type check uint8
 
 const (
 	checkCLRUT check = iota
+	checkDate
 	checkUYCI
 	checkAUTFN
 	checkNZIRD
@@ -71,6 +72,8 @@ const (
 
 func (c check) valid(b []byte) bool {
 	switch c {
+	case checkDate:
+		return checksum.Date(b)
 	case checkCLRUT:
 		return checksum.CLRUT(b)
 	case checkUYCI:
@@ -385,6 +388,14 @@ func ruleSet() []rule {
 		{
 			typ: entity.CNRIC, lens: []int{18}, windows: anyWindow, check: checkCNRIC, need: needNothing,
 			words: []string{"身份证", "resident identity", "id card"}, distinct: true,
+		},
+		{
+			typ: entity.DateOfBirth, lens: []int{6, 8}, windows: digitWindow, check: checkDate, need: needKeyword,
+			words: []string{
+				"nascimento", "nascido em", "nascida em", "dob", "date of birth", "birth date", "born",
+				"birthday", "nacimiento", "nacido el", "nacida el", "geboren", "geburtsdatum", "naissance", "né le",
+				"née le", "nato il", "nata il", "nascita",
+			},
 		},
 		{
 			typ:     entity.CreditCard,
