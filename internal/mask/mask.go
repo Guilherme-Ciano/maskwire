@@ -3,6 +3,7 @@ package mask
 import (
 	"bytes"
 	"errors"
+	"hash/maphash"
 	"strings"
 	"sync"
 
@@ -53,13 +54,14 @@ type Engine struct {
 	maxEntities int
 	rw          *jsonx.Rewriter
 	pool        sync.Pool
+	seed        maphash.Seed
 }
 
 func NewEngine(det SpanDetector, maxEntities int) *Engine {
 	if maxEntities <= 0 {
 		maxEntities = DefaultMaxEntities
 	}
-	return &Engine{det: det, maxEntities: maxEntities, rw: jsonx.NewRewriter()}
+	return &Engine{det: det, maxEntities: maxEntities, rw: jsonx.NewRewriter(), seed: maphash.MakeSeed()}
 }
 
 type Counters struct {
@@ -90,6 +92,7 @@ type entry struct {
 	sum      [32]byte
 	origFrom int
 	origTo   int
+	length   int
 	numeric  bool
 }
 
@@ -99,6 +102,7 @@ type Session struct {
 	key      *token.TenantKey
 	observe  bool
 	set      map[Suffix]int
+	byRaw    map[uint64]int
 	entries  []entry
 	arena    []byte
 	spans    []entity.Span
@@ -126,7 +130,7 @@ func (e *Engine) Scan(text []byte) (counts [entity.Count]uint32) {
 func (e *Engine) NewSession(t *Tenant) *Session {
 	s, ok := e.pool.Get().(*Session)
 	if !ok {
-		s = &Session{eng: e, set: make(map[Suffix]int)}
+		s = &Session{eng: e, set: make(map[Suffix]int), byRaw: make(map[uint64]int)}
 	}
 	s.tenant = t
 	s.key = t.Key
@@ -219,6 +223,15 @@ func (s *Session) maskField(dst, src, field []byte) ([]byte, error) {
 }
 
 func (s *Session) issue(dst []byte, t entity.Type, raw []byte) ([]byte, error) {
+	h := maphash.Bytes(s.eng.seed, raw) ^ uint64(t)
+	if idx, ok := s.byRaw[h]; ok && s.entries[idx].typ == t &&
+		bytes.Equal(s.arena[s.entries[idx].origFrom:s.entries[idx].origTo], raw) {
+		e := &s.entries[idx]
+		var key Suffix
+		token.AppendSuffix(key[:0], &e.sum, e.length)
+		s.last = idx
+		return token.AppendToken(dst, t, key[:e.length]), nil
+	}
 	s.canon = token.AppendCanonical(s.canon[:0], t, raw)
 	sum := s.key.Sum(t, s.canon)
 	n := s.tenant.TokenLength
@@ -243,9 +256,10 @@ func (s *Session) issue(dst []byte, t entity.Type, raw []byte) ([]byte, error) {
 			}
 			from := len(s.arena)
 			s.arena = append(s.arena, raw...)
-			s.entries = append(s.entries, entry{typ: t, sum: sum, origFrom: from, origTo: len(s.arena)})
+			s.entries = append(s.entries, entry{typ: t, sum: sum, origFrom: from, origTo: len(s.arena), length: n})
 			s.set[key] = len(s.entries) - 1
 			s.last = len(s.entries) - 1
+			s.byRaw[h] = s.last
 		}
 		return token.AppendToken(dst, t, key[:n]), nil
 	}
@@ -356,6 +370,7 @@ func (s *Session) Release() {
 	clear(s.entries)
 	clear(s.spans)
 	clear(s.set)
+	clear(s.byRaw)
 	s.arena = s.arena[:0]
 	s.entries = s.entries[:0]
 	s.spans = s.spans[:0]

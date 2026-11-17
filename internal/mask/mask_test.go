@@ -288,3 +288,30 @@ func FuzzMaskRoundTrip(f *testing.F) {
 		}
 	})
 }
+
+func TestRepeatedValuesReuseTokens(t *testing.T) {
+	t.Parallel()
+	eng := newEngine()
+	tn := newTenant(t, "acme", policy.New(policy.Enforce, policy.Mask))
+	s := eng.NewSession(tn)
+	masked := mustMask(t, s, "CPF 529.982.247-25, again 529.982.247-25, form 52998224725, again 52998224725")
+	fields := strings.Fields(strings.NewReplacer(",", " ").Replace(string(masked)))
+	tokens := []string{fields[1], fields[3], fields[5], fields[7]}
+	for _, tok := range tokens[1:] {
+		if tok != tokens[0] {
+			t.Fatalf("one value must keep one token: %q", masked)
+		}
+	}
+	if s.SurfaceVariants() != 2 {
+		t.Fatalf("every sighting of another surface form counts, got %d", s.SurfaceVariants())
+	}
+	fresh := mustMask(t, eng.NewSession(tn), "CPF 529.982.247-25")
+	if !strings.Contains(string(fresh), tokens[0]) {
+		t.Fatalf("a new session must issue the same deterministic token: %q vs %q", fresh, tokens[0])
+	}
+	s.Release()
+	reused := eng.NewSession(newTenant(t, "other", policy.New(policy.Enforce, policy.Mask)))
+	if again := mustMask(t, reused, "CPF 529.982.247-25"); strings.Contains(string(again), tokens[0]) {
+		t.Fatalf("a pooled session must not reuse another tenant's token: %q", again)
+	}
+}
