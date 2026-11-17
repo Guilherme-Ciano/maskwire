@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 )
 
@@ -244,6 +245,15 @@ func LooksBase64(raw []byte) bool {
 
 func HasPrefix(raw []byte, prefix string) bool {
 	return IsString(raw) && bytes.HasPrefix(raw[1:], []byte(prefix))
+}
+
+func FieldName(path []Frame) []byte {
+	for _, f := range slices.Backward(path) {
+		if !f.Array {
+			return f.Name
+		}
+	}
+	return nil
 }
 
 func Under(path []Frame, name string) bool {

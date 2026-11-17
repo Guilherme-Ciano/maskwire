@@ -77,6 +77,9 @@ type scanner struct {
 	groups     [maxGroups]group
 	ng         int
 	run        int
+	hint       [maxHint]byte
+	hintLen    int
+	negative   bool
 	phoneState PhoneState
 	v6End      int
 }
@@ -96,7 +99,15 @@ func (d *Detector) Detect(dst []entity.Span, text []byte) []entity.Span {
 }
 
 func (d *Detector) DetectWith(dst []entity.Span, text []byte, st *PhoneState) []entity.Span {
+	return d.DetectField(dst, text, nil, st)
+}
+
+func (d *Detector) DetectField(dst []entity.Span, text, field []byte, st *PhoneState) []entity.Span {
 	s := scanner{d: d, text: text, out: dst[:0], phoneState: *st}
+	if len(field) > 0 {
+		s.hintLen = normalizeField(&s.hint, field)
+		s.negative = negativeField(&s.hint, s.hintLen)
+	}
 	s.emails()
 	s.obfuscatedEmails()
 	s.words()
@@ -324,11 +335,8 @@ func (s *scanner) flushRun() {
 		if end < 0 {
 			continue
 		}
-		score := s.idScore(typ, i, end)
-		if score < 0.9 && s.phoneShaped(i) {
-			continue
-		}
-		if score < 1 && (s.phonePrefixed(0) || s.splitsToken(i, end, n, &claimed) || s.looseGroups(typ, i, end)) {
+		score, ok := s.accept(typ, i, end, n, &claimed)
+		if !ok {
 			continue
 		}
 		s.emitScore(s.groups[i].start, s.groups[end].end, typ, score)
@@ -340,6 +348,19 @@ func (s *scanner) flushRun() {
 	if s.d.phone {
 		s.phones(n, &claimed)
 	}
+}
+
+func (s *scanner) accept(typ entity.Type, i, end, n int, claimed *[maxGroups]bool) (float32, bool) {
+	score := s.idScore(typ, i, end)
+	switch {
+	case score < formattedScore && s.phoneShaped(i):
+		return 0, false
+	case score < 1 && (s.phonePrefixed(0) || s.splitsToken(i, end, n, claimed) || s.looseGroups(typ, i, end)):
+		return 0, false
+	case s.negative && score < formattedScore:
+		return 0, false
+	}
+	return score, true
 }
 
 func (s *scanner) phoneShaped(i int) bool {
@@ -434,7 +455,11 @@ type lowered struct {
 
 func (s *scanner) lower(pos int) lowered {
 	var l lowered
-	for _, c := range s.text[max(pos-keywordWindow, 0):pos] {
+	from := max(pos-keywordWindow, 0)
+	if room := keywordWindow - (pos - from); room > 0 && s.hintLen > 0 {
+		l.n = copy(l.buf[:], s.hint[max(s.hintLen-room, 0):s.hintLen])
+	}
+	for _, c := range s.text[from:pos] {
 		if isUpper(c) {
 			c += 'a' - 'A'
 		}

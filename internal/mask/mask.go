@@ -37,6 +37,7 @@ func (e *BlockedError) Error() string {
 
 type SpanDetector interface {
 	DetectWith(dst []entity.Span, text []byte, phones *detect.PhoneState) []entity.Span
+	DetectField(dst []entity.Span, text, field []byte, phones *detect.PhoneState) []entity.Span
 	NewPhoneState() *detect.PhoneState
 }
 
@@ -179,7 +180,11 @@ func (s *Session) Err() error {
 }
 
 func (s *Session) MaskText(dst, src []byte) ([]byte, error) {
-	s.spans = s.eng.det.DetectWith(s.spans[:0], src, s.phones)
+	return s.maskField(dst, src, nil)
+}
+
+func (s *Session) maskField(dst, src, field []byte) ([]byte, error) {
+	s.spans = s.eng.det.DetectField(s.spans[:0], src, field, s.phones)
 	last := 0
 	for _, sp := range s.spans {
 		if sp.Start < last || sp.End > len(src) {
@@ -291,16 +296,20 @@ func (s *Session) MaskJSONStrings(dst, doc []byte) ([]byte, error) {
 	return s.eng.rw.Rewrite(dst, doc, s.maskStringLeaf)
 }
 
-func (s *Session) maskStringLeaf(dst []byte, _ []jsonx.Frame, raw []byte) (out []byte, changed bool, err error) {
-	return s.MaskLeaf(dst, raw)
+func (s *Session) maskStringLeaf(dst []byte, path []jsonx.Frame, raw []byte) (out []byte, changed bool, err error) {
+	return s.MaskLeafField(dst, jsonx.FieldName(path), raw)
 }
 
 func (s *Session) MaskLeaf(dst, raw []byte) (out []byte, changed bool, err error) {
+	return s.MaskLeafField(dst, nil, raw)
+}
+
+func (s *Session) MaskLeafField(dst, field, raw []byte) (out []byte, changed bool, err error) {
 	if jsonx.IsString(raw) {
-		return s.MaskQuoted(dst, raw)
+		return s.maskQuotedField(dst, field, raw)
 	}
 	mark := len(s.scratch)
-	s.scratch, err = s.MaskText(s.scratch, raw)
+	s.scratch, err = s.maskField(s.scratch, raw, field)
 	if err != nil {
 		return dst, false, err
 	}
@@ -318,12 +327,16 @@ func (s *Session) MaskLeaf(dst, raw []byte) (out []byte, changed bool, err error
 }
 
 func (s *Session) MaskQuoted(dst, raw []byte) (out []byte, changed bool, err error) {
+	return s.maskQuotedField(dst, nil, raw)
+}
+
+func (s *Session) maskQuotedField(dst, field, raw []byte) (out []byte, changed bool, err error) {
 	s.scratch, err = jsonx.Unquote(s.scratch[:0], raw)
 	if err != nil {
 		return dst, false, err
 	}
 	mark := len(s.scratch)
-	s.scratch, err = s.MaskText(s.scratch, s.scratch[:mark])
+	s.scratch, err = s.maskField(s.scratch, s.scratch[:mark], field)
 	if err != nil {
 		return dst, false, err
 	}

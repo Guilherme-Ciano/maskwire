@@ -94,6 +94,9 @@ func (c *Codec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
 		if !requestTarget(path, raw) {
 			return dst, false, nil
 		}
+		if jsonx.Under(path, "input") {
+			return m.MaskLeafField(dst, jsonx.FieldName(path), raw)
+		}
 		return m.MaskLeaf(dst, raw)
 	})
 	if err != nil {

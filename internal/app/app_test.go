@@ -633,6 +633,42 @@ func TestCrossTurnRestoreFromVault(t *testing.T) {
 	}
 }
 
+func TestFieldHintsInToolArguments(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	openai := mustJSON(t, map[string]any{
+		"model": "m",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "file the payroll"},
+			map[string]any{"role": "assistant", "tool_calls": []any{
+				map[string]any{
+					"id":   "c1",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "file",
+						"arguments": `{"ein":"123456789","routing_number":"021000021"}`,
+					},
+				},
+			}},
+		},
+	})
+	if r := h.post(chatPath, openai, nil); r.status != http.StatusOK {
+		t.Fatalf("status %d %s", r.status, r.body)
+	}
+	saw := h.upstreamSaw(false)
+	for _, raw := range []string{"123456789", "021000021"} {
+		if strings.Contains(saw, raw) {
+			t.Fatalf("%s reached the upstream: %s", raw, saw)
+		}
+	}
+	anthropic := `{"model":"c","max_tokens":5,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1",` +
+		`"name":"lookup","input":{"taxFileNumber":"123456782","note":"ok"}}]},{"role":"user","content":"go"}]}`
+	h.post("/v1/messages", anthropic, nil)
+	if saw := h.upstreamSaw(false); strings.Contains(saw, "123456782") || !strings.Contains(saw, "[TFN_") {
+		t.Fatalf("anthropic tool_use input not masked by field hint: %s", saw)
+	}
+}
+
 func TestOverheadMetric(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)

@@ -23,6 +23,7 @@ type Masker interface {
 	MaskText(dst, src []byte) ([]byte, error)
 	MaskQuoted(dst, raw []byte) ([]byte, bool, error)
 	MaskLeaf(dst, raw []byte) ([]byte, bool, error)
+	MaskLeafField(dst, field, raw []byte) ([]byte, bool, error)
 	MaskJSONStrings(dst, doc []byte) ([]byte, error)
 }
 

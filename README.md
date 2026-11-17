@@ -319,7 +319,10 @@ Outside Europe and Brazil, every identifier is validated by its official check d
 | | `AU_TFN`, `NZ_IRD`, `JP_MYNUMBER` | with a keyword |
 | Africa and Middle East | `ZA_ID`, `IL_ID`, `TR_TCKN` | with a keyword |
 
-Keywords of four letters or fewer must stand alone, so "EIN" never matches inside "Einstein". A layout match has to
+Inside JSON, the field name counts as context: `{"ein": "123456789"}`, `{"taxFileNumber": "123456782"}` or
+`{"customer_ssn": ...}` in tool-call arguments and Anthropic `tool_use` inputs are recognised like the keyword
+written before the value, and fields named `order_id`, `sku`, `invoice` or `trace_id` drop bare checksum
+coincidences while keeping anything with a keyword or an official format. Keywords of four letters or fewer must stand alone, so "EIN" never matches inside "Einstein". A layout match has to
 cover the whole run of digit groups, so the first 12 digits of a card number are never read as an Aadhaar.
 Example: `by_type: {PT_NIF: {action: mask, min_score: 0.7}}` masks NIFs that are formatted or labelled and
 lets a bare 9-digit number through (random 9-digit numbers pass the NIF checksum about 9% of the time). Blocked
