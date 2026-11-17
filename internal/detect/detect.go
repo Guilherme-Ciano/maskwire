@@ -41,7 +41,8 @@ type Detector struct {
 	reservedEmail bool
 	names         *gazetteer
 	rules         *ruleIndex
-	phoneWords    [][]byte
+	keys          *keyIndex
+	regionPool    regionPool
 	secrets       *secretIndex
 	fold          *foldTable
 	phoneCache    *phoneCache
@@ -57,7 +58,7 @@ func New(o Options) *Detector {
 	d.rules = newRuleIndex()
 	d.fold = newFoldTable()
 	d.phoneCache = newPhoneCache()
-	d.phoneWords = toBytes(phoneWords())
+	d.keys = newKeyIndex(d.rules, toBytes(phoneWords()))
 	if !o.DisableSecrets {
 		d.secrets = newSecretIndex()
 	}
@@ -91,6 +92,15 @@ type scanner struct {
 	negative   bool
 	phoneState PhoneState
 	v6End      int
+	memo       keyMemo
+	region     *keyRegion
+	runID      int
+}
+
+type keyMemo struct {
+	pos   int
+	rules uint64
+	phone bool
 }
 
 type PhoneState struct {
@@ -125,6 +135,9 @@ func (d *Detector) DetectField(dst []entity.Span, text, field []byte, st *PhoneS
 		s.names()
 	}
 	*st = s.phoneState
+	if s.region != nil {
+		d.regionPool.put(s.region)
+	}
 	return resolve(s.out)
 }
 
@@ -388,6 +401,7 @@ func (s *scanner) flushRun() {
 	n := s.ng
 	s.ng = 0
 	s.run = n
+	s.runID++
 	var claimed [maxGroups]bool
 	for i := 0; i < n; i++ {
 		if s.groups[i].digits == 0 && s.groups[i].letters > 0 && !ibanStart(s.text[s.groups[i].start:s.groups[i].end]) {
@@ -467,7 +481,6 @@ func ibanStart(b []byte) bool {
 
 func (s *scanner) bestWindow(i, n int) (int, entity.Type) {
 	var buf [maxCompact]byte
-	ctx := lowered{pos: s.groups[i].start}
 	k := 0
 	best, bestType := -1, entity.Unknown
 	digitsOnly := true
@@ -484,7 +497,7 @@ func (s *scanner) bestWindow(i, n int) (int, entity.Type) {
 				return j, t
 			}
 		}
-		if t := s.classify(buf[:k], digitsOnly, i, j, &ctx); t != entity.Unknown {
+		if t := s.classify(buf[:k], digitsOnly, i, j); t != entity.Unknown {
 			best, bestType = j, t
 		}
 	}
@@ -511,16 +524,14 @@ func letterByte(c byte) bool {
 }
 
 type lowered struct {
-	buf    [keywordWindow]byte
-	n      int
-	pos    int
-	starts uint32
-	done   bool
+	buf   [keywordWindow + keyPad]byte
+	n     int
+	rules uint64
+	phone bool
 }
 
 type foldTable struct {
 	lower  [256]byte
-	start  [256]uint32
 	letter [256]bool
 }
 
@@ -532,34 +543,9 @@ func newFoldTable() *foldTable {
 		if isUpper(c) {
 			f.lower[i] = c + 'a' - 'A'
 		}
-		f.start[i] = startBit(c)
 		f.letter[i] = letterByte(c)
 	}
 	return f
-}
-
-func startBit(c byte) uint32 {
-	switch {
-	case isLower(c):
-		return 1 << (c - 'a')
-	case isUpper(c):
-		return 1 << (c - 'A')
-	case c >= 0x80:
-		return 1 << 26
-	}
-	return 1 << 27
-}
-
-func startMask(words [][]byte) uint32 {
-	var m uint32
-	for _, w := range words {
-		m |= startBit(w[0])
-	}
-	return m
-}
-
-func (l *lowered) may(mask uint32) bool {
-	return l.starts&mask != 0
 }
 
 func (s *scanner) lower(pos int) lowered {
@@ -569,62 +555,36 @@ func (s *scanner) lower(pos int) lowered {
 	if room := keywordWindow - (pos - from); room > 0 && s.hintLen > 0 {
 		l.n = copy(l.buf[:], s.hint[max(s.hintLen-room, 0):s.hintLen])
 	}
-	letter := false
-	for _, c := range l.buf[:l.n] {
-		if !letter {
-			l.starts |= f.start[c]
-		}
-		letter = f.letter[c]
-	}
 	n := l.n
 	for _, c := range s.text[from:pos] {
-		if !letter {
-			l.starts |= f.start[c]
-		}
-		letter = f.letter[c]
 		l.buf[n] = f.lower[c]
 		n++
 	}
 	l.n = n
+	s.d.keys.mark(&l, f)
 	return l
 }
 
-func (s *scanner) lazy(l *lowered) *lowered {
-	if !l.done {
-		*l = s.lower(l.pos)
-		l.done = true
+func (s *scanner) keyMask(pos int) keyMemo {
+	if s.memo.pos == pos+1 {
+		return s.memo
 	}
-	return l
+	m, ok := s.regionMask(pos)
+	if !ok {
+		l := s.lower(pos)
+		m = keyMemo{rules: l.rules, phone: l.phone}
+	}
+	m.pos = pos + 1
+	s.memo = m
+	return m
 }
 
-func (l *lowered) has(strict bool, words [][]byte) bool {
-	w := l.buf[:l.n]
-	for _, word := range words {
-		for off := 0; off < len(w); {
-			k := bytes.Index(w[off:], word)
-			if k < 0 {
-				break
-			}
-			at := off + k
-			end := at + len(word)
-			short := strict && len(word) <= maxPrefixKeyword
-			if (at == 0 || !letterByte(w[at-1])) && (!short || end >= len(w) || !letterByte(w[end])) {
-				return true
-			}
-			off = at + 1
-		}
-	}
-	return false
-}
-
-func (s *scanner) keyword(pos int, words [][]byte) bool {
-	l := s.lower(pos)
-	return l.has(true, words)
+func (s *scanner) keyword(pos int, r *rule) bool {
+	return s.keyMask(pos).rules&r.bit != 0
 }
 
 func (s *scanner) phoneContext(pos int) bool {
-	l := s.lower(pos)
-	return l.has(false, s.d.phoneWords)
+	return s.keyMask(pos).phone
 }
 
 func toBytes(words []string) [][]byte {

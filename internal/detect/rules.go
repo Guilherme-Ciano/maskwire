@@ -177,7 +177,7 @@ type rule struct {
 	loose    bool
 	single   bool
 	keys     [][]byte
-	kmask    uint32
+	bit      uint64
 }
 
 func span(lo, hi int) []int {
@@ -426,6 +426,9 @@ type ruleIndex struct {
 	digits [maxCompact + 1][]*rule
 	alnum  [maxCompact + 1][]*rule
 	byType [entity.Count]*rule
+	all    []*rule
+	dKeyed [maxCompact + 1]uint64
+	aKeyed [maxCompact + 1]uint64
 }
 
 func newRuleIndex() *ruleIndex {
@@ -434,16 +437,19 @@ func newRuleIndex() *ruleIndex {
 	for i := range rs {
 		r := &rs[i]
 		r.keys = toBytes(r.words)
-		r.kmask = startMask(r.keys)
+		r.bit = 1 << uint(i)
+		ix.all = append(ix.all, r)
 		if ix.byType[r.typ] == nil {
 			ix.byType[r.typ] = r
 		}
 		for _, n := range r.lens {
 			if r.windows&digitWindow != 0 {
 				ix.digits[n] = append(ix.digits[n], r)
+				ix.dKeyed[n] |= r.keyBit()
 			}
 			if r.windows&alnumWindow != 0 {
 				ix.alnum[n] = append(ix.alnum[n], r)
+				ix.aKeyed[n] |= r.keyBit()
 			}
 		}
 	}
@@ -469,7 +475,6 @@ type classifier struct {
 	first  int
 	last   int
 	single bool
-	ctx    *lowered
 	valid  [16]int8
 }
 
@@ -490,9 +495,16 @@ func (c *classifier) ok(k int) bool {
 	return c.valid[k] == 1
 }
 
-func (c *classifier) byKeyword() entity.Type {
+func (r *rule) keyBit() uint64 {
+	if len(r.keys) == 0 {
+		return 0
+	}
+	return r.bit
+}
+
+func (c *classifier) byKeyword(found uint64) entity.Type {
 	for k, r := range c.rs {
-		if r.keys != nil && c.ok(k) && c.s.lazy(c.ctx).may(r.kmask) && c.ctx.has(true, r.keys) {
+		if r.bit&found != 0 && c.ok(k) {
 			return r.typ
 		}
 	}
@@ -520,20 +532,25 @@ func (c *classifier) bare() entity.Type {
 	return entity.Unknown
 }
 
-func (s *scanner) classify(b []byte, digitsOnly bool, first, last int, ctx *lowered) entity.Type {
+func (s *scanner) classify(b []byte, digitsOnly bool, first, last int) entity.Type {
 	if len(b) > maxCompact {
 		return entity.Unknown
 	}
-	rs := s.d.rules.alnum[len(b)]
+	ix := s.d.rules
+	rs, keyed := ix.alnum[len(b)], ix.aKeyed[len(b)]
 	if digitsOnly {
-		rs = s.d.rules.digits[len(b)]
+		rs, keyed = ix.digits[len(b)], ix.dKeyed[len(b)]
 	}
 	if len(rs) == 0 {
 		return entity.Unknown
 	}
-	c := classifier{s: s, b: b, rs: rs, first: first, last: last, single: first == last, ctx: ctx}
-	if t := c.byKeyword(); t != entity.Unknown {
-		return t
+	c := classifier{s: s, b: b, rs: rs, first: first, last: last, single: first == last}
+	if keyed != 0 {
+		if found := s.keyMask(s.groups[first].start).rules & keyed; found != 0 {
+			if t := c.byKeyword(found); t != entity.Unknown {
+				return t
+			}
+		}
 	}
 	if t := c.byLayout(); t != entity.Unknown {
 		return t
@@ -551,7 +568,7 @@ func (s *scanner) idScore(t entity.Type, first, last int) float32 {
 		return baseScore(t)
 	}
 	switch {
-	case s.keyword(s.groups[first].start, r.keys):
+	case s.keyword(s.groups[first].start, r):
 		return 1
 	case s.layout(r, first, last):
 		return formattedScore
