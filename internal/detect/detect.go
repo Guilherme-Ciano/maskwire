@@ -219,9 +219,35 @@ func appendFolded(buf []byte, k int, src []byte) int {
 	return k
 }
 
+func (f *foldTable) skip(t []byte, i int) int {
+	word := -1
+	for ; i < len(t); i++ {
+		switch f.class[t[i]] {
+		case classLower:
+			if word < 0 {
+				word = i
+			}
+		case classPlain:
+			word = -1
+		default:
+			if word >= 0 {
+				return word
+			}
+			return i
+		}
+	}
+	return i
+}
+
 func (s *scanner) words() {
 	t := s.text
+	f := s.d.fold
 	for i := 0; i < len(t); {
+		if s.ng == 0 {
+			if i = f.skip(t, i); i >= len(t) {
+				return
+			}
+		}
 		c := t[i]
 		if c < 0x80 && !isAlnum(c) && c != '_' {
 			if c == ':' || c == '=' || c == '-' {
@@ -530,9 +556,16 @@ type lowered struct {
 	phone bool
 }
 
+const (
+	classStop byte = iota
+	classLower
+	classPlain
+)
+
 type foldTable struct {
 	lower  [256]byte
 	letter [256]bool
+	class  [256]byte
 }
 
 func newFoldTable() *foldTable {
@@ -544,6 +577,12 @@ func newFoldTable() *foldTable {
 			f.lower[i] = c + 'a' - 'A'
 		}
 		f.letter[i] = letterByte(c)
+		switch {
+		case isLower(c):
+			f.class[i] = classLower
+		case c < 0x80 && !isAlnum(c) && c != '_' && c != ':' && c != '=' && c != '-':
+			f.class[i] = classPlain
+		}
 	}
 	return f
 }
