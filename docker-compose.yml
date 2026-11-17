@@ -87,7 +87,7 @@ services:
       retries: 10
 
   prometheus:
-    image: prom/prometheus:v3.7.3
+    image: prom/prometheus:v3.16.0
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -97,7 +97,7 @@ services:
 
   jaeger:
     profiles: ["tracing"]
-    image: jaegertracing/jaeger:2.10.0
+    image: jaegertracing/jaeger:2.23.0
     ports:
       - "${JAEGER_PORT:-16686}:16686"
 
