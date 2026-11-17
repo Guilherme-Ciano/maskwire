@@ -303,10 +303,10 @@ func (r Route) validate(i int, paths map[string]bool) []error {
 		errs = append(errs, fmt.Errorf("routes[%d].upstream must be an absolute http(s) URL", i))
 	}
 	switch r.Codec {
-	case "openai", "openai-responses", "openai-embeddings", "anthropic", "passthrough":
+	case "openai", "openai-responses", "openai-embeddings", "anthropic", "gemini", "passthrough":
 	default:
 		errs = append(errs, fmt.Errorf(
-			"routes[%d].codec must be openai, openai-responses, openai-embeddings, anthropic or passthrough, got %q",
+			"routes[%d].codec must be openai, openai-responses, openai-embeddings, anthropic, gemini or passthrough, got %q",
 			i,
 			r.Codec,
 		))

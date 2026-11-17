@@ -5,6 +5,7 @@ import (
 
 	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec/anthropic"
+	"github.com/Guilherme-Ciano/maskwire/internal/codec/gemini"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec/openai"
 	"github.com/Guilherme-Ciano/maskwire/internal/restore"
 )
@@ -186,4 +187,44 @@ func (responsesCodec) InjectHint(body []byte) ([]byte, error) {
 
 func (embeddingsCodec) InjectHint(body []byte) ([]byte, error) {
 	return body, nil
+}
+
+type geminiCodec struct {
+	c *gemini.Codec
+}
+
+func NewGeminiCodec() Codec {
+	return geminiCodec{c: gemini.New()}
+}
+
+func (geminiCodec) Name() string {
+	return "gemini"
+}
+
+func (geminiCodec) ParseMeta(body []byte) (Meta, error) {
+	return gemini.ParseMeta(body)
+}
+
+func (g geminiCodec) MaskRequest(dst, body []byte, m codec.Masker) ([]byte, error) {
+	return g.c.MaskRequest(dst, body, m)
+}
+
+func (g geminiCodec) RestoreBody(
+	dst, body []byte,
+	set restore.Set,
+	o restore.Options,
+) ([]byte, restore.Stats, error) {
+	return g.c.RestoreBody(dst, body, set, o)
+}
+
+func (geminiCodec) NewStreamBody(src io.ReadCloser, set restore.Set, o StreamOptions) StreamBody {
+	return gemini.NewStreamBody(src, set, o)
+}
+
+func (geminiCodec) Synthesize(dst, body []byte) ([]byte, error) {
+	return gemini.Synthesize(dst, body)
+}
+
+func (geminiCodec) InjectHint(body []byte) ([]byte, error) {
+	return gemini.InjectHint(body)
 }

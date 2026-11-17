@@ -58,7 +58,7 @@ func descriptions() map[string]string {
 		"routes[].name":                      "route name used in metrics and audit records",
 		"routes[].path":                      "path served by maskwire",
 		"routes[].upstream":                  "upstream URL; with a path it is used as is, without one the incoming path is appended",
-		"routes[].codec":                     "`openai`, `openai-responses`, `openai-embeddings`, `anthropic` or `passthrough` (GET only, no body)",
+		"routes[].codec":                     "`openai`, `openai-responses`, `openai-embeddings`, `anthropic`, `gemini` or `passthrough` (GET only, no body)",
 		"routes[].synthesize_stream":         "turn a JSON reply into SSE when the client asked for a stream, for caches that only store JSON",
 		"tenants[].id":                       "tenant id: letters, digits, `-`, `_`, `.`; at most 64 characters",
 		"tenants[].key_sha256":               "sha256 of the tenant API key; `maskwire gen-key` creates both",

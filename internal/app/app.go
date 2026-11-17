@@ -246,6 +246,8 @@ func buildRoutes(cfg config.Config) ([]httpapi.Route, error) {
 			c = httpapi.NewOpenAICodec()
 		case "anthropic":
 			c = httpapi.NewAnthropicCodec()
+		case "gemini":
+			c = httpapi.NewGeminiCodec()
 		case "openai-responses":
 			c = httpapi.NewResponsesCodec()
 		case "openai-embeddings":

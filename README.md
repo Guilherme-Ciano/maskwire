@@ -280,9 +280,12 @@ is a working example. The settings most deployments touch:
 - `keys.master_key_file`: a 32+ byte hex key in a file only maskwire can read. It derives every tenant's token key
   and the audit key; changing `keys.version` rotates all tokens.
 - `routes[]`: one per upstream endpoint, with a codec: `openai` (Chat Completions), `openai-responses`,
-  `openai-embeddings`, `anthropic` (Messages and `count_tokens`) or `passthrough` (GET routes such as `/v1/models`,
-  still behind the tenant key). An upstream URL with a path is used as is; without one, the incoming path is
-  appended.
+  `openai-embeddings`, `anthropic` (Messages and `count_tokens`), `gemini` (`generateContent`,
+  `streamGenerateContent?alt=sse` and `countTokens`; route `/v1beta/models/` to cover every model) or `passthrough`
+  (GET routes such as `/v1/models`, still behind the tenant key). An upstream URL with a path is used as is; without
+  one, the incoming path and query are appended. OpenAI-compatible servers (Azure OpenAI deployments, Mistral,
+  vLLM, Ollama's `/v1` API, LM Studio) use the `openai` codec; `server.upstream_h2c` speaks cleartext HTTP/2 to
+  local ones.
 - `tenants[]`: `key_sha256` (`maskwire gen-key` prints a key and its hash; `hash-key` hashes an existing key of at
   least 24 characters), `mode` (`enforce` or `observe`), a `default` action and `by_type` rules with `action` and
   `min_score`.
