@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Guilherme-Ciano/maskwire/internal/audit"
+	"github.com/Guilherme-Ciano/maskwire/internal/bufpool"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec"
 	"github.com/Guilherme-Ciano/maskwire/internal/codec/openai"
 	"github.com/Guilherme-Ciano/maskwire/internal/entity"
@@ -105,6 +106,7 @@ type Server struct {
 	tenants   atomic.Pointer[tenantTable]
 	routes    []Route
 	transport http.RoundTripper
+	bufs      bufpool.Pool
 	auditor   Auditor
 	opts      Options
 	ready     atomic.Bool
@@ -286,7 +288,7 @@ type exchange struct {
 	stream   bool
 	stalled  bool
 	observe  bool
-	masked   []byte
+	payload  *bufpool.Buf
 	upstream []byte
 	onStall  func()
 	status   int
@@ -307,8 +309,26 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, rt *Route, x 
 	return tenant, true
 }
 
-func (s *Server) readRequest(w http.ResponseWriter, r *http.Request, rt *Route, x *exchange) ([]byte, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.opts.MaxBodyBytes))
+func (s *Server) readBody(w http.ResponseWriter, r *http.Request) (*bufpool.Buf, error) {
+	src := http.MaxBytesReader(w, r.Body, s.opts.MaxBodyBytes)
+	if n := r.ContentLength; n > 0 && n <= s.opts.MaxBodyBytes {
+		buf := s.bufs.Get(int(n))
+		buf.B = buf.B[:n]
+		if _, err := io.ReadFull(src, buf.B); err != nil {
+			buf.Release()
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		return buf, nil
+	}
+	body, err := io.ReadAll(src)
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	return bufpool.Wrap(body), nil
+}
+
+func (s *Server) readRequest(w http.ResponseWriter, r *http.Request, rt *Route, x *exchange) (*bufpool.Buf, bool) {
+	buf, err := s.readBody(w, r)
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.fail(w, r, x, http.StatusRequestEntityTooLarge, "body_too_large", errors.New("request body too large"))
@@ -317,16 +337,18 @@ func (s *Server) readRequest(w http.ResponseWriter, r *http.Request, rt *Route, 
 		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("could not read request body"))
 		return nil, false
 	}
-	x.meta, err = rt.Codec.ParseMeta(body)
+	x.meta, err = rt.Codec.ParseMeta(buf.B)
 	if err != nil {
+		buf.Release()
 		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("request body is not valid JSON"))
 		return nil, false
 	}
 	if x.meta.Logprobs {
+		buf.Release()
 		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", openai.ErrLogprobs)
 		return nil, false
 	}
-	return body, true
+	return buf, true
 }
 
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
@@ -356,13 +378,18 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 		s.fail(w, r, x, http.StatusUnsupportedMediaType, "unsupported_encoding", ErrUnsupportedMedia)
 		return
 	}
-	body, ok := s.readRequest(w, r, rt, x)
+	in, ok := s.readRequest(w, r, rt, x)
 	if !ok {
 		return
 	}
+	defer in.Release()
+	body := in.B
 	x.session, x.vault = s.newSession(r, tenant)
 	defer x.session.Release()
-	masked, err := rt.Codec.MaskRequest(make([]byte, 0, len(body)+len(body)/4), body, x.session)
+	out := s.bufs.Get(len(body) + len(body)/4)
+	defer out.Release()
+	masked, err := rt.Codec.MaskRequest(out.B, body, x.session)
+	out.B = masked
 	x.maskTime = time.Since(x.start)
 	s.metrics.MaskDuration.WithLabelValues(rt.Name).Observe(x.maskTime.Seconds())
 	s.countDetections(x)
@@ -371,7 +398,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 	}
 	switch {
 	case errors.Is(err, mask.ErrTooManyEntities):
-		s.fail(w, r, x, http.StatusUnprocessableEntity, "too_many_entities", err)
+		s.fail(w, r, x, http.StatusUnprocessableEntity, "too_many_entities", mask.ErrTooManyEntities)
 		return
 	case err != nil:
 		s.fail(w, r, x, http.StatusBadRequest, "invalid_request", errors.New("request body could not be processed"))
@@ -385,18 +412,20 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *Route) {
 		s.failBlocked(w, r, x, blocked)
 		return
 	}
-	if observe {
-		masked = body
-	} else if tenant.PromptHint && x.session.Issued() > 0 {
+	payload := out
+	switch {
+	case observe:
+		payload = in
+	case tenant.PromptHint && x.session.Issued() > 0:
 		if hinted, err := rt.Codec.InjectHint(masked); err == nil {
-			masked = hinted
+			payload = bufpool.Wrap(hinted)
 		}
 	}
-	x.inDigest = sha256.Sum256(masked)
+	x.inDigest = sha256.Sum256(payload.B)
 	if !observe {
 		s.saveVault(r.Context(), x)
 	}
-	s.forward(w, r, x, masked, observe)
+	s.forward(w, r, x, payload, observe)
 }
 
 const maxScanned = 64 << 10
@@ -430,10 +459,10 @@ func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 			pr.Out.Header.Del(s.opts.SessionHeader)
 			pr.Out.Header.Del("Content-Length")
 			pr.Out.Header.Del("Accept-Encoding")
-			pr.Out.Body = io.NopCloser(bytes.NewReader(x.masked))
-			pr.Out.ContentLength = int64(len(x.masked))
+			pr.Out.Body = x.payload.Reader()
+			pr.Out.ContentLength = int64(len(x.payload.B))
 			pr.Out.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(x.masked)), nil
+				return x.payload.Reader(), nil
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
@@ -445,10 +474,10 @@ func (s *Server) routeProxy(rt *Route) *httputil.ReverseProxy {
 	}
 }
 
-func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, masked []byte, observe bool) {
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, x *exchange, payload *bufpool.Buf, observe bool) {
 	ctx, cancel := context.WithCancelCause(r.Context())
 	defer cancel(nil)
-	x.masked, x.observe = masked, observe
+	x.payload, x.observe = payload, observe
 	x.onStall = func() {
 		x.stalled = true
 		cancel(codec.ErrUpstreamStalled)
