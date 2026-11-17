@@ -1,5 +1,7 @@
 # Contributing
 
+This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Prerequisites
 
 - Go 1.27 (CI uses the latest 1.27.x patch release)

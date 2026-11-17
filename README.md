@@ -12,7 +12,9 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Guilherme-Ciano/maskwire/badge)](https://scorecard.dev/viewer/?uri=github.com/Guilherme-Ciano/maskwire)
 [![Release](https://img.shields.io/github/v/release/Guilherme-Ciano/maskwire?sort=semver)](https://github.com/Guilherme-Ciano/maskwire/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Guilherme-Ciano/maskwire.svg)](https://pkg.go.dev/github.com/Guilherme-Ciano/maskwire/pkg/mask)
+[![Go version](https://img.shields.io/github/go-mod/go-version/Guilherme-Ciano/maskwire)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 maskwire is a reverse proxy for the OpenAI Chat Completions, Responses and Embeddings APIs and the Anthropic Messages
 API. Before a request leaves
