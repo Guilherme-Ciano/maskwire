@@ -441,7 +441,7 @@ for deployer logs (Art. 26(6)) means a value of at least 184 if that applies to 
 ## Benchmarks
 
 <!-- bench:start -->
-Measured on 2026-11-16, commit `0b41bb2`. Hardware: AMD Ryzen 5 4600G (6C/12T), 16 GB RAM, Linux 7.3.4-cachyos,
+Measured on 2026-11-17, commit `215801f`. Hardware: AMD Ryzen 5 4600G (6C/12T), 16 GB RAM, Linux 7.3.4-cachyos,
 Go 1.27.4. CPU governor `powersave` with boost on (changing it needs root), and a desktop session was running, so
 treat the numbers as a lower bound for a tuned server. Everything runs on one host over loopback against `mockllm`,
 a Go mock upstream with zero latency. These are proxy overhead numbers, not internet latency.
@@ -453,26 +453,27 @@ maskwire and mockllm each pinned to 4 cores with `GOMAXPROCS=4`; the audit log w
 
 | rate | direct p50 | direct p99 | via maskwire p50 | via maskwire p99 | **added p50** | **added p99** | maskwire p99.9 | errors |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 500 req/s | 0.21 ms | 0.60 ms | 0.48 ms | 1.03 ms | **+0.27 ms** | **+0.43 ms** | 2.1 ms | 0 |
-| 1,000 req/s | 0.19 ms | 0.35 ms | 0.39 ms | 0.84 ms | **+0.20 ms** | **+0.50 ms** | 1.3 ms | 0 |
-| 2,000 req/s | 0.18 ms | 0.45 ms | 0.40 ms | 0.97 ms | **+0.22 ms** | **+0.52 ms** | 1.7 ms | 0 |
-| 4,000 req/s | 0.17 ms | 0.65 ms | 0.39 ms | 2.24 ms | **+0.22 ms** | **+1.59 ms** | 7.4 ms | 0 |
+| 500 req/s | 0.21 ms | 0.55 ms | 0.44 ms | 0.77 ms | **+0.23 ms** | **+0.22 ms** | 1.7 ms | 0 |
+| 1,000 req/s | 0.19 ms | 0.38 ms | 0.37 ms | 0.66 ms | **+0.18 ms** | **+0.28 ms** | 1.2 ms | 0 |
+| 2,000 req/s | 0.18 ms | 0.50 ms | 0.38 ms | 0.80 ms | **+0.20 ms** | **+0.31 ms** | 1.4 ms | 0 |
+| 4,000 req/s | 0.18 ms | 0.59 ms | 0.35 ms | 1.03 ms | **+0.18 ms** | **+0.44 ms** | 2.0 ms | 0 |
+| 5,000 req/s | 0.19 ms | 0.69 ms | 0.37 ms | 1.22 ms | **+0.18 ms** | **+0.53 ms** | 2.7 ms | 0 |
 
-Targets were p50 < 0.5 ms and p99 < 2 ms added; both hold at every rate tested. At 4,000 req/s the four pinned
-cores are close to saturation and the tail grows. maskwire used 0.36-0.47 CPU-ms per request, including both HTTP
-hops, JSON parsing, masking, restore and the audit write.
+Against the previous run (`0b41bb2`), added p99 fell from +1.59 ms to +0.44 ms at 4,000 req/s and p99.9 from 7.4 ms
+to 2.0 ms, while detection now covers 48 types instead of 23. maskwire used 0.29-0.37 CPU-ms per request (was
+0.36-0.47), including both HTTP hops, JSON parsing, masking, restore and the audit write.
 
 **Streaming.** The same prompt with `stream: true`; mockllm streams the echo as about 1,000 SSE events of 1-7 bytes
 each, with no delay between them. 300 sequential requests.
 
 | | time to first byte p50 | p99 | full stream p50 | p99 |
 |---|---:|---:|---:|---:|
-| direct | 0.22 ms | 0.70 ms | 7.7 ms | 9.4 ms |
-| via maskwire | 0.51 ms | 1.62 ms | 10.4 ms | 13.5 ms |
+| direct | 0.19 ms | 0.58 ms | 7.3 ms | 9.6 ms |
+| via maskwire | 0.44 ms | 0.76 ms | 8.4 ms | 10.9 ms |
 
-maskwire adds about 0.29 ms before the first byte, and under 3 µs per SSE event (each event is decoded, restored
-and re-encoded; events with nothing to restore are forwarded unchanged). A real model emits tens of events per
-second, so per-event cost is negligible next to generation time.
+maskwire adds about 0.25 ms before the first byte and about 1 µs per SSE event (2.7 µs in the previous run): events
+are parsed in place and restored text is spliced into the original bytes, so a real model's tens of events per
+second cost nothing measurable.
 
 **Micro-benchmarks**, one core (`-cpu 1`), 6 runs, benchstat median ± 95% CI
 ([raw](bench/results/raw/a0f2eea.txt), [benchstat against the previous run](bench/results/raw/a0f2eea-benchstat.txt)).
@@ -508,9 +509,9 @@ The detection target was 150 MB/s per core on ordinary text. Streaming restore a
 produce (lower case, other brackets, Markdown escapes, missing brackets, quoted numbers) and only restores the
 relaxed forms for suffixes issued in the request.
 
-Reproduce: `make bench`, then `make build && cd bench && taskset -c 0-3 go run ./cmd/loadgen -rates 500,1000,2000,4000`.
-Full report: [`bench/results/2026-11-16-ryzen-5-0b41bb2/report.md`](bench/results/2026-11-16-ryzen-5-0b41bb2/report.md)
-(the "dirty" flag there is the uncommitted raw benchmark file of this run). Earlier run:
+Reproduce: `make bench`, then `make build && cd bench && go run ./cmd/loadgen -rates 500,1000,2000,4000,5000`.
+Full report: [`bench/results/2026-11-17-ryzen-5-215801f/report.md`](bench/results/2026-11-17-ryzen-5-215801f/report.md).
+Earlier runs: [`2026-11-16`](bench/results/2026-11-16-ryzen-5-0b41bb2/report.md),
 [`2026-11-12`](bench/results/2026-11-12-ryzen-5-bfa5642/report.md).
 <!-- bench:end -->
 

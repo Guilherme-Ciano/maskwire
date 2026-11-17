@@ -3,7 +3,7 @@
 Today maskwire is the fastest way to keep personal data from 48 identifier types in 30+ countries out of OpenAI,
 Anthropic and Gemini requests without losing streaming. Every number below is measured in this repository:
 
-- +0.22 ms added p50 at 2,000 req/s;
+- +0.18 ms added p50 and +0.53 ms p99 at 5,000 req/s;
 - 1 GB/s of detection per core on ordinary text, 52 MB/s on text with an entity every 30 bytes;
 - 0 tokens deformed or invented by three Claude models;
 - about four orders of magnitude faster than Presidio, with 0% false alarms on dates and order numbers.
@@ -57,14 +57,15 @@ plain number on its own.
 
 ## 4. Faster than anyone needs
 
-Done. Numbers from [`bench/results/raw/a0f2eea-benchstat.txt`](../bench/results/raw/a0f2eea-benchstat.txt).
+Done. Numbers from [`bench/results/raw/a0f2eea-benchstat.txt`](../bench/results/raw/a0f2eea-benchstat.txt) and
+[the load test](../bench/results/2026-11-17-ryzen-5-215801f/report.md).
 
 | # | Item | Result |
 |---|---|---|
 | 4.1 | Eight-byte SWAR scanner and a two-byte bucket keyword index | Clean text from 407 MB/s to 1.01 GB/s per core with 0 allocations; dense text +24 to +57% while checking twice as many types |
 | 4.2 | Allocation-free SSE restore with in-place splicing | OpenAI streams 2.4× faster with 53 allocations per stream instead of 14,809; Anthropic 1.9× faster with 49 instead of 3,688; 64-byte chunk restore from 202 to 267 MB/s (the 300 MB/s goal is not reached on this token-dense benchmark) |
 | 4.3 | Request bodies in pooled, zeroed buffers sized by `Content-Length` | Half the memory per large request and no steady-state allocation by maskwire; a full upstream stream is not possible while `block` must see the whole body first |
-| 4.4 | Pooled proxy copy buffers, 64 KB I/O buffers, HTTP/2 pings and windows, `server.upstream_h2c` | -39% bytes and -50% allocations per round trip; load test below |
+| 4.4 | Pooled proxy copy buffers, 64 KB I/O buffers, HTTP/2 pings and windows, `server.upstream_h2c` | -39% bytes and -50% allocations per round trip; +0.18 ms p50 and +0.53 ms p99 added at 5,000 req/s (the +0.1/+0.3 ms goal is not reached; added p99 at 4,000 req/s fell from 1.59 to 0.44 ms) |
 
 ## 5. Everywhere LLM traffic flows
 
