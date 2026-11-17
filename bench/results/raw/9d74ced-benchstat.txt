@@ -1,0 +1,146 @@
+goos: linux
+goarch: amd64
+pkg: github.com/Guilherme-Ciano/maskwire/internal/app
+cpu: AMD Ryzen 5 4600G with Radeon Graphics
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt   │
+             │            sec/op             │   sec/op     vs base              │
+ProxyRequest                     238.5µ ± 2%   261.4µ ± 2%  +9.56% (p=0.002 n=6)
+
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+             │              B/s              │     B/s       vs base              │
+ProxyRequest                    9.179Mi ± 2%   8.378Mi ± 2%  -8.73% (p=0.002 n=6)
+
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+             │             B/op              │     B/op      vs base              │
+ProxyRequest                    102.5Ki ± 0%   102.4Ki ± 0%  -0.05% (p=0.002 n=6)
+
+             │ bench/results/raw/0b41bb2.txt │  bench/results/raw/9d74ced.txt   │
+             │           allocs/op           │ allocs/op   vs base              │
+ProxyRequest                      403.0 ± 0%   363.0 ± 0%  -9.93% (p=0.002 n=6)
+
+pkg: github.com/Guilherme-Ciano/maskwire/internal/codec/openai
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt   │
+             │            sec/op             │   sec/op     vs base              │
+MaskRequest                      45.13µ ± 2%   46.08µ ± 1%  +2.10% (p=0.041 n=6)
+RestoreBody                      29.82µ ± 3%   27.96µ ± 2%  -6.25% (p=0.002 n=6)
+StreamEvents                     3.292m ± 0%   3.275m ± 1%       ~ (p=0.310 n=6)
+geomean                          164.3µ        161.6µ       -1.62%
+
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+             │              B/s              │     B/s       vs base              │
+MaskRequest                     89.19Mi ± 2%   87.35Mi ± 1%  -2.06% (p=0.041 n=6)
+RestoreBody                     133.4Mi ± 3%   142.3Mi ± 2%  +6.66% (p=0.002 n=6)
+StreamEvents                    56.91Mi ± 0%   57.21Mi ± 1%       ~ (p=0.310 n=6)
+geomean                         87.82Mi        89.27Mi       +1.65%
+
+             │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+             │             B/op              │     B/op      vs base              │
+MaskRequest                     6.737Ki ± 0%   6.722Ki ± 0%  -0.23% (p=0.002 n=6)
+RestoreBody                     21.48Ki ± 0%   21.96Ki ± 0%  +2.26% (p=0.002 n=6)
+StreamEvents                    668.5Ki ± 0%   668.9Ki ± 0%  +0.05% (p=0.002 n=6)
+geomean                         45.91Ki        46.22Ki       +0.69%
+
+             │ bench/results/raw/0b41bb2.txt │    bench/results/raw/9d74ced.txt    │
+             │           allocs/op           │  allocs/op   vs base                │
+MaskRequest                       66.00 ± 0%    65.00 ± 0%  -1.52% (p=0.002 n=6)
+RestoreBody                       19.00 ± 0%    19.00 ± 0%       ~ (p=1.000 n=6) ¹
+StreamEvents                     14.81k ± 0%   14.81k ± 0%       ~ (p=1.000 n=6)
+geomean                           264.8         263.5       -0.51%
+¹ all samples are equal
+
+pkg: github.com/Guilherme-Ciano/maskwire/internal/detect
+                  │ bench/results/raw/0b41bb2.txt │    bench/results/raw/9d74ced.txt    │
+                  │            sec/op             │    sec/op     vs base               │
+Detect/clean/1KB                      2.564µ ± 1%    2.490µ ± 3%   -2.87% (p=0.041 n=6)
+Detect/clean/4KB                     10.075µ ± 1%    9.674µ ± 2%   -3.98% (p=0.002 n=6)
+Detect/clean/64KB                     158.5µ ± 3%    153.5µ ± 1%   -3.12% (p=0.002 n=6)
+Detect/dense/1KB                      37.44µ ± 3%    48.97µ ± 1%  +30.78% (p=0.002 n=6)
+Detect/dense/4KB                      97.04µ ± 0%   138.65µ ± 2%  +42.88% (p=0.002 n=6)
+Detect/dense/64KB                     1.975m ± 0%    1.936m ± 1%   -2.01% (p=0.002 n=6)
+DetectNames                                          34.27µ ± 1%
+geomean                               55.55µ         55.71µ        +8.75%
+
+                  │ bench/results/raw/0b41bb2.txt │    bench/results/raw/9d74ced.txt    │
+                  │              B/s              │     B/s       vs base               │
+Detect/clean/1KB                     380.9Mi ± 1%   392.2Mi ± 3%   +2.95% (p=0.041 n=6)
+Detect/clean/4KB                     387.7Mi ± 1%   403.8Mi ± 2%   +4.15% (p=0.002 n=6)
+Detect/clean/64KB                    394.4Mi ± 3%   407.1Mi ± 1%   +3.22% (p=0.002 n=6)
+Detect/dense/1KB                     26.08Mi ± 3%   19.94Mi ± 1%  -23.55% (p=0.002 n=6)
+Detect/dense/4KB                     40.25Mi ± 0%   28.17Mi ± 2%  -30.02% (p=0.002 n=6)
+Detect/dense/64KB                    31.64Mi ± 0%   32.29Mi ± 1%   +2.03% (p=0.002 n=6)
+DetectNames                                         114.0Mi ± 1%
+geomean                              111.6Mi        104.2Mi        -8.05%
+
+                  │ bench/results/raw/0b41bb2.txt │     bench/results/raw/9d74ced.txt     │
+                  │             B/op              │     B/op      vs base                 │
+Detect/clean/1KB                     0.000 ± 0%       0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/clean/4KB                     0.000 ± 0%       0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/clean/64KB                    0.000 ± 0%       0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/dense/1KB                   3.711Ki ± 0%     2.211Ki ± 0%  -40.42% (p=0.002 n=6)
+Detect/dense/4KB                   8.820Ki ± 0%     2.586Ki ± 0%  -70.68% (p=0.002 n=6)
+Detect/dense/64KB                 109.27Ki ± 0%     10.08Ki ± 0%  -90.78% (p=0.002 n=6)
+DetectNames                                           177.0 ± 0%
+geomean                                         ²                 -49.74%               ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                  │ bench/results/raw/0b41bb2.txt │    bench/results/raw/9d74ced.txt    │
+                  │           allocs/op           │ allocs/op   vs base                 │
+Detect/clean/1KB                     0.000 ± 0%     0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/clean/4KB                     0.000 ± 0%     0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/clean/64KB                    0.000 ± 0%     0.000 ± 0%        ~ (p=1.000 n=6) ¹
+Detect/dense/1KB                     73.00 ± 0%     52.00 ± 0%  -28.77% (p=0.002 n=6)
+Detect/dense/4KB                    152.00 ± 0%     68.00 ± 0%  -55.26% (p=0.002 n=6)
+Detect/dense/64KB                   1718.0 ± 0%     381.0 ± 0%  -77.82% (p=0.002 n=6)
+DetectNames                                         33.00 ± 0%
+geomean                                         ²               -35.70%               ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+pkg: github.com/Guilherme-Ciano/maskwire/internal/jsonx
+                      │ bench/results/raw/0b41bb2.txt │ bench/results/raw/9d74ced.txt │
+                      │            sec/op             │    sec/op     vs base         │
+RewriteLargeUnchanged                     4.936m ± 1%    4.938m ± 1%  ~ (p=0.589 n=6)
+
+                      │ bench/results/raw/0b41bb2.txt │ bench/results/raw/9d74ced.txt │
+                      │              B/s              │     B/s       vs base         │
+RewriteLargeUnchanged                    305.3Mi ± 1%   305.1Mi ± 1%  ~ (p=0.509 n=6)
+
+                      │ bench/results/raw/0b41bb2.txt │ bench/results/raw/9d74ced.txt │
+                      │             B/op              │     B/op      vs base         │
+RewriteLargeUnchanged                      40.00 ± 3%     40.00 ± 3%  ~ (p=1.000 n=6)
+
+                      │ bench/results/raw/0b41bb2.txt │ bench/results/raw/9d74ced.txt │
+                      │           allocs/op           │ allocs/op   vs base           │
+RewriteLargeUnchanged                      0.000 ± 0%   0.000 ± 0%  ~ (p=1.000 n=6) ¹
+¹ all samples are equal
+
+pkg: github.com/Guilherme-Ciano/maskwire/internal/restore
+                       │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+                       │            sec/op             │   sec/op     vs base               │
+RestoreStream/chunk=1                      1.935m ± 1%   1.919m ± 0%   -0.86% (p=0.009 n=6)
+RestoreStream/chunk=8                      555.3µ ± 1%   506.7µ ± 0%   -8.74% (p=0.002 n=6)
+RestoreStream/chunk=64                     324.5µ ± 1%   279.9µ ± 1%  -13.74% (p=0.002 n=6)
+geomean                                    703.9µ        648.0µ        -7.93%
+
+                       │ bench/results/raw/0b41bb2.txt │    bench/results/raw/9d74ced.txt    │
+                       │              B/s              │     B/s       vs base               │
+RestoreStream/chunk=1                     32.29Mi ± 1%   32.57Mi ± 0%   +0.87% (p=0.006 n=6)
+RestoreStream/chunk=8                     112.6Mi ± 1%   123.3Mi ± 0%   +9.58% (p=0.002 n=6)
+RestoreStream/chunk=64                    192.6Mi ± 1%   223.3Mi ± 1%  +15.93% (p=0.002 n=6)
+geomean                                   88.79Mi        96.45Mi        +8.62%
+
+                       │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+                       │             B/op              │    B/op     vs base                │
+RestoreStream/chunk=1                       385.0 ± 0%   784.5 ± 0%  +103.77% (p=0.002 n=6)
+RestoreStream/chunk=8                       281.0 ± 0%   678.0 ± 0%  +141.28% (p=0.002 n=6)
+RestoreStream/chunk=64                      264.0 ± 0%   661.0 ± 0%  +150.38% (p=0.002 n=6)
+geomean                                     305.7        705.8       +130.90%
+
+                       │ bench/results/raw/0b41bb2.txt │   bench/results/raw/9d74ced.txt    │
+                       │           allocs/op           │ allocs/op   vs base                │
+RestoreStream/chunk=1                       1.000 ± 0%   1.000 ± 0%       ~ (p=1.000 n=6) ¹
+RestoreStream/chunk=8                       1.000 ± 0%   1.000 ± 0%       ~ (p=1.000 n=6) ¹
+RestoreStream/chunk=64                      1.000 ± 0%   1.000 ± 0%       ~ (p=1.000 n=6) ¹
+geomean                                     1.000        1.000       +0.00%
+¹ all samples are equal
