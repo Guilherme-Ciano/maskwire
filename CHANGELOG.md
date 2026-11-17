@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.1.0](https://github.com/Guilherme-Ciano/maskwire/compare/v1.0.0...v1.1.0) (2026-11-17)
+
+
+### Features
+
+* **detect:** 23 national IDs across the Americas, Asia-Pacific, Africa and the Middle East ([f10ab9e](https://github.com/Guilherme-Ciano/maskwire/commit/f10ab9e66a815bb096883c514312806b00be67d5))
+* **detect:** dates of birth next to a birth keyword ([ff87492](https://github.com/Guilherme-Ciano/maskwire/commit/ff874924248c02460c04a5977b34a4befd568ec7))
+* **detect:** JSON field names as detection context ([8c0348a](https://github.com/Guilherme-Ciano/maskwire/commit/8c0348a72bad34cf21c48e200aa3d7b33bb7619d))
+* **detect:** mask credentials and tighten the scan loop ([344bf8e](https://github.com/Guilherme-Ciano/maskwire/commit/344bf8e65f0b7d83494c4cbd6298ad3334db8482))
+* **gemini:** mask generateContent requests and restore JSON and SSE responses ([f55d6ea](https://github.com/Guilherme-Ciano/maskwire/commit/f55d6eaf7d0512ec2ab333893e006b8b7ba0ab72))
+
+
+### Bug fixes
+
+* **detect:** stop an endless loop when a secret token is followed by a dash ([51a5c11](https://github.com/Guilherme-Ciano/maskwire/commit/51a5c1142a20aaaa7066956be463a3743ab63671))
+
+
+### Performance
+
+* **anthropic:** splice restored text into content_block_delta events without decoding them into structs ([d4975e0](https://github.com/Guilherme-Ciano/maskwire/commit/d4975e04de94f177d7d501b18b22fd89b280cca8))
+* **detect:** fold keyword windows through a byte table and skip keyword scans by first letter ([f2bb074](https://github.com/Guilherme-Ciano/maskwire/commit/f2bb074b01414582c0422b9e1e7b3751cd5808e8))
+* **detect:** index keywords by two-byte buckets and resolve windows from one scan per run ([1706a6a](https://github.com/Guilherme-Ciano/maskwire/commit/1706a6aef99038978e2d15df427eac9649a3d83b))
+* **detect:** scan plain prose eight bytes at a time and pass title-case words without tokenising ([fab500d](https://github.com/Guilherme-Ciano/maskwire/commit/fab500d38d7b2390008a8773b7a59d082fb589e6))
+* **detect:** share phone verdicts across requests through a bounded hashed cache ([82c018c](https://github.com/Guilherme-Ciano/maskwire/commit/82c018c68948932828aa43cef5b27cfd091fafd6))
+* **detect:** skip plain lowercase prose through a byte-class table when no group is pending ([ed115ed](https://github.com/Guilherme-Ciano/maskwire/commit/ed115eddc1109d3fb2f3cd573fd00dea8cae7036))
+* **httpapi:** pool proxy copy buffers, widen upstream buffers and HTTP/2 windows, add upstream_h2c ([f6b7e8d](https://github.com/Guilherme-Ciano/maskwire/commit/f6b7e8d06a9708224e8cf2bb9fffee2631768ff0))
+* **httpapi:** read request bodies into pooled, zeroed buffers sized by Content-Length ([7fbe628](https://github.com/Guilherme-Ciano/maskwire/commit/7fbe628a3f6bacc794c78c09a609a7b6cb7716c2))
+* **mask:** reuse the token of a value already issued in the session without a second HMAC ([82b218f](https://github.com/Guilherme-Ciano/maskwire/commit/82b218f4321c97db4d8cadb512bcf96fcb00c97f))
+* **openai:** splice restored text into SSE chunks without decoding them into structs ([7eabf63](https://github.com/Guilherme-Ciano/maskwire/commit/7eabf63c7219d4002d38c15a9dbea7e9cb89c47e))
+* **restore:** canonical-token fast path and table-driven triggers ([890e808](https://github.com/Guilherme-Ciano/maskwire/commit/890e8089bbf0f3f18c77ab2254754a2bd46be8bb))
+* **restore:** scan triggers eight bytes at a time, pass plain words whole and fold labels without a map ([5775e91](https://github.com/Guilherme-Ciano/maskwire/commit/5775e91eb1002d43564c94be0b2df082d0157615))
+
+
+### Documentation
+
+* add code of conduct and the missing badges ([3394ed9](https://github.com/Guilherme-Ciano/maskwire/commit/3394ed92e9b99f456a000f8bacf595060cacbbf4))
+* **bench:** load test at 5,000 req/s after the performance work ([adee395](https://github.com/Guilherme-Ciano/maskwire/commit/adee39581d609389702dc6f8375ddebd4f2f1b74))
+* **bench:** publish the performance roadmap results ([8e1de05](https://github.com/Guilherme-Ciano/maskwire/commit/8e1de059db95dbc274fda899f31e778c7f2b4cca))
+* **bench:** refresh micro-benchmarks after the keyword index and token reuse ([d0851ec](https://github.com/Guilherme-Ciano/maskwire/commit/d0851ec7f7b5daa7ce7ec43b9b688bd6f1e94b3b))
+* **bench:** refresh micro-benchmarks for 48 entity types ([8bf36e9](https://github.com/Guilherme-Ciano/maskwire/commit/8bf36e97839b21a8dc03551408a700fb175120f0))
+* **bench:** refresh micro-benchmarks with the shared phone verdict cache ([8d8af10](https://github.com/Guilherme-Ciano/maskwire/commit/8d8af10369f577c8d45b9014a6441db8ecb6926b))
+* **comparison:** rerun Presidio on the corpus with world IDs, secrets and dates of birth ([5fd68a8](https://github.com/Guilherme-Ciano/maskwire/commit/5fd68a80452b435832be8707b1918e7015a9523b))
+
 ## 1.0.0 (2026-11-17)
 
 
