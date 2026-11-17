@@ -319,6 +319,11 @@ Outside Europe and Brazil, every identifier is validated by its official check d
 | | `AU_TFN`, `NZ_IRD`, `JP_MYNUMBER` | with a keyword |
 | Africa and Middle East | `ZA_ID`, `IL_ID`, `TR_TCKN` | with a keyword |
 
+Credentials are masked too (`SECRET`): AWS access keys, Google API keys, GitHub, GitLab, Stripe, OpenAI,
+Anthropic, Slack, npm and Hugging Face tokens by their documented prefixes, JWTs, PEM private-key blocks, and
+values assigned to `password`, `api_key`, `token` and similar when they look machine-generated, so "password:
+please reset it" is left alone. Set `detect.disable_secrets` to turn this off.
+
 Inside JSON, the field name counts as context: `{"ein": "123456789"}`, `{"taxFileNumber": "123456782"}` or
 `{"customer_ssn": ...}` in tool-call arguments and Anthropic `tool_use` inputs are recognised like the keyword
 written before the value, and fields named `order_id`, `sku`, `invoice` or `trace_id` drop bare checksum

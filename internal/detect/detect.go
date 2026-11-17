@@ -31,6 +31,7 @@ type Options struct {
 	DisablePhone      bool
 	KeepReservedEmail bool
 	Names             bool
+	DisableSecrets    bool
 }
 
 type Detector struct {
@@ -41,6 +42,7 @@ type Detector struct {
 	names         *gazetteer
 	rules         *ruleIndex
 	phoneWords    [][]byte
+	secrets       *secretIndex
 }
 
 func New(o Options) *Detector {
@@ -52,6 +54,9 @@ func New(o Options) *Detector {
 	}
 	d.rules = newRuleIndex()
 	d.phoneWords = toBytes(phoneWords())
+	if !o.DisableSecrets {
+		d.secrets = newSecretIndex()
+	}
 	if o.Names {
 		d.names = newGazetteer()
 	}
@@ -199,34 +204,89 @@ func appendFolded(buf []byte, k int, src []byte) int {
 
 func (s *scanner) words() {
 	t := s.text
-	i := 0
-	for i < len(t) {
+	for i := 0; i < len(t); {
 		c := t[i]
 		if c < 0x80 && !isAlnum(c) && c != '_' {
-			if c == ':' {
-				s.ipv6(i)
+			if c == ':' || c == '=' || c == '-' {
+				i = s.punct(i)
+				continue
 			}
 			i++
 			continue
 		}
-		if n := sepLen(t, i); c >= 0x80 && n > 0 {
-			i += n
-			continue
-		}
-		if isLower(c) {
-			if j := s.lowerWord(i); j > 0 {
-				i = j
+		if c >= 0x80 {
+			if n := sepLen(t, i); n > 0 {
+				i += n
 				continue
 			}
 		}
-		g, clean := s.word(i)
-		if clean {
-			s.addGroup(g)
-		} else {
-			s.flushRun()
-		}
-		i = max(g.end, i+1)
+		i = s.token(i)
 	}
+}
+
+func (s *scanner) punct(i int) int {
+	c := s.text[i]
+	if c == ':' {
+		s.ipv6(i)
+	}
+	if s.d.secrets != nil && (c == ':' || c == '=' || c == '-') {
+		if end := s.punctSecret(i); end > 0 {
+			return end
+		}
+	}
+	return i + 1
+}
+
+func (s *scanner) token(i int) int {
+	c := s.text[i]
+	if isLower(c) {
+		if j := s.lowerWord(i); j > 0 {
+			return j
+		}
+	}
+	if s.d.secrets != nil && s.d.secrets.first[c] {
+		if end := s.secret(i); end > 0 {
+			return end
+		}
+	}
+	g, clean := s.word(i)
+	if clean {
+		s.addGroup(g)
+	} else {
+		s.flushRun()
+	}
+	return max(g.end, i+1)
+}
+
+func (s *scanner) secret(i int) int {
+	start, end := s.secretAt(i)
+	return s.emitSecret(start, end)
+}
+
+func (s *scanner) emitSecret(start, end int) int {
+	if start < 0 || end <= start {
+		return -1
+	}
+	s.flushRun()
+	s.emitScore(start, end, entity.Secret, secretScore)
+	return end
+}
+
+func (s *scanner) punctSecret(i int) int {
+	if s.text[i] != '-' {
+		return s.emitSecret(s.assignment(i))
+	}
+	if end := s.pemBlock(i); end > 0 {
+		return s.emitSecret(i, end)
+	}
+	q := i
+	for q > 0 && isAlnum(s.text[q-1]) {
+		q--
+	}
+	if q == i || !s.d.secrets.first[s.text[q]] {
+		return -1
+	}
+	return s.emitSecret(s.secretAt(q))
 }
 
 func (s *scanner) lowerWord(i int) int {

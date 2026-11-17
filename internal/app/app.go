@@ -77,6 +77,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		DisablePhone:      cfg.Detect.DisablePhone,
 		KeepReservedEmail: cfg.Detect.KeepReservedEmail,
 		Names:             cfg.Detect.Names,
+		DisableSecrets:    cfg.Detect.DisableSecrets,
 	})
 	metrics := telemetry.NewMetrics()
 	tracing, err := telemetry.NewTracing(context.Background(), telemetry.TracingOptions{

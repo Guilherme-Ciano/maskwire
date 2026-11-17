@@ -137,8 +137,21 @@ func (g *gen) tckn() value {
 	return value{entity.TRTCKN, c, c, "TC Kimlik No", true}
 }
 
+func (g *gen) secret() value {
+	alnum := letters + "abcdefghijklmnopqrstuvwxyz0123456789"
+	c := g.pick(
+		"AKIA"+g.upper(16, letters+"0123456789"),
+		"ghp_"+g.upper(36, alnum),
+		"sk_live_"+g.upper(24, alnum),
+		"xoxb-"+g.digits(12)+"-"+g.upper(24, alnum),
+		"eyJ"+g.upper(20, alnum)+".eyJ"+g.upper(30, alnum)+"."+g.upper(43, alnum),
+	)
+	return value{entity.Secret, c, c, g.pick("api key", "token", "credentials"), false}
+}
+
 func (g *gen) worldValues() []func() value {
 	return []func() value{
+		g.secret,
 		g.ssn, g.itin, g.ein, g.aba, g.curp, g.rfc, g.cuit, g.rut, g.nit, g.ruc, g.uyci, g.aadhaar, g.pan, g.tfn,
 		g.abn, g.ird, g.mynumber, g.rrn, g.cnric, g.nric, g.zaid, g.ilid, g.tckn,
 	}

@@ -42,6 +42,7 @@ func descriptions() map[string]string {
 		"detect.disable_phone":               "turn phone detection off",
 		"detect.keep_reserved_email":         "also mask addresses at reserved domains such as `example.com`, which are skipped by default",
 		"detect.names":                       "detect person names (preview): first-name gazetteer plus surnames, honorifics and labels such as `nome:`; see docs/evaluation.md",
+		"detect.disable_secrets":             "turn off detection of API keys, tokens, JWTs, private keys and password assignments",
 		"detect.max_entities":                "distinct entities per request before it is rejected with 422",
 		"log.level":                          "`debug`, `info`, `warn` or `error`",
 		"log.format":                         "`json` or `text`",

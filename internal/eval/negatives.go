@@ -129,6 +129,13 @@ func (g *gen) negatives() []func() negative {
 				"Prezado Cliente", "Bom Dia", "Thank You", "Best Regards", "Atenciosamente Equipe", "Nota Fiscal")}
 		},
 		func() negative {
+			return negative{
+				"prose after a credential word",
+				g.pick("password: please reset it", "token: expired yesterday",
+					"secret: not shared", "api_key: see the vault"),
+			}
+		},
+		func() negative {
 			return negative{"quantity with unit", strconv.Itoa(1+g.r.IntN(9999)) + g.pick(" kg", " km", " ml", " MB")}
 		},
 	}

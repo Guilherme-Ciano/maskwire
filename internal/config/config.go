@@ -92,6 +92,7 @@ type Detect struct {
 	DisablePhone      bool     `koanf:"disable_phone"`
 	KeepReservedEmail bool     `koanf:"keep_reserved_email"`
 	Names             bool     `koanf:"names"`
+	DisableSecrets    bool     `koanf:"disable_secrets"`
 	MaxEntities       int      `koanf:"max_entities"`
 }
 
